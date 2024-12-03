@@ -1,0 +1,1 @@
+./autocoder.py --input-file autocoder.py --output-file autocoder_reimagined.py --requirements "Have a look at this program. Reimagine it. Restructure it. Make it better. Make it GREAT. Output the reimagined program." --model meta-llama/Meta-Llama-3.1-70B-Instruct
