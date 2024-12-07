@@ -11,13 +11,10 @@ import importlib.util  # To check if tiktoken is installed
 
 # Define models and their costs, context lengths, and providers
 models = {
-    "meta-llama/Meta-Llama-3.1-405B":         {"input_cost": 4.0, "output_cost": 4.0, "context_length": 32768, "max_tokens": 8192, "provider": "hyperbolic"},
-    "meta-llama/Meta-Llama-3.1-405B-FP8":     {"input_cost": 2.0, "output_cost": 2.0, "context_length": 32768, "max_tokens": 8192, "provider": "hyperbolic"},
     "gpt-4o-mini":                           {"input_cost": 0.15, "output_cost": 0.6, "context_length": 128000, "max_tokens": 16384, "provider": "openai"},
     "meta-llama/Llama-3.3-70B-Instruct":     {"input_cost": 0.4, "output_cost": 0.4, "context_length": 131072, "max_tokens": 131072, "provider": "hyperbolic"},
-    "Qwen/Qwen2.5-72B-Instruct":              {"input_cost": 0.4, "output_cost": 0.4, "context_length": 16384, "max_tokens": 8192, "provider": "hyperbolic"},
-    "Qwen/Qwen2.5-Coder-32B-Instruct":        {"input_cost": 0.2, "output_cost": 0.2, "context_length": 32768, "max_tokens": 8192, "provider": "hyperbolic"},
-    "Qwen/QwQ-32B-Preview":                   {"input_cost": 0.2, "output_cost": 0.2, "context_length": 32768, "max_tokens": 8192, "provider": "hyperbolic"},
+    "Qwen/Qwen2.5-Coder-32B-Instruct":        {"input_cost": 0.2, "output_cost": 0.2, "context_length": 131072, "max_tokens": 8192, "provider": "hyperbolic"},
+    "Qwen/QwQ-32B-Preview":                   {"input_cost": 0.2, "output_cost": 0.2, "context_length": 32768, "max_tokens": 32768, "provider": "hyperbolic"},
 }
 
 # Reorder models from most expensive to least expensive
@@ -58,7 +55,7 @@ def list_models():
 def parse_command_line():
     parser = argparse.ArgumentParser(description="AI Coder Tool")
     parser.add_argument("-c", "--control-file", dest="control_file", help="Specify a control file in JSON format.")
-    parser.add_argument("-i", "--input-file", dest="input_file", help="Specify the input file.")
+    parser.add_argument("-i", "--input-files", dest="input_files", nargs='+', help="Specify one or more input files. You can use this option multiple times or provide multiple files separated by spaces.")
     parser.add_argument("-o", "--output-file", dest="output_file", help="Specify the output file.")
     parser.add_argument("-r", "--requirements", dest="requirements", help="Specify the requirements as a string.")
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite the output file if it exists and truncate it first.")
@@ -74,28 +71,76 @@ def parse_command_line():
     if args.control_file:
         with open(args.control_file, 'r') as ctl_file:
             config = json.load(ctl_file, strict=False)
-            infilename = config.get("input_file")
+            input_files = config.get("input_files")
             outfilename = config.get("output_file")
             requirements = config.get("requirements")
     else:
-        infilename = args.input_file
+        input_files = args.input_files
         outfilename = args.output_file
         requirements = args.requirements
 
-    if not infilename or not outfilename or not requirements:
+    if not input_files or not outfilename or not requirements:
         parser.print_help()
         sys.exit(1)
+    else:
+        if args.debug_level > 2:
+            print("DEBUG: input_files:", input_files)
 
     if args.model not in [model for model, _ in ordered_models]:
         print(f"Model {args.model} not found. Please choose from the available models.")
         parser.print_help()
         sys.exit(1)
 
-    return infilename, outfilename, requirements, args.model, args.force, args.debug_level
+    return input_files, outfilename, requirements, args.model, args.force, args.debug_level
+
+# Updated language map to include more common Unix text file types
+language_map = {
+    '.txt': 'text',
+    '.py': 'python',
+    '.pl': 'perl',
+    '.sql': 'sql',
+    '.sh': 'shell',
+    '.md': 'markdown',
+    '.json': 'json',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
+    '.html': 'html',
+    '.js': 'javascript',
+    '.css': 'css',
+    '.c': 'c',
+    '.cpp': 'cpp',
+    '.h': 'c',
+    '.hpp': 'cpp',
+    '.java': 'java',
+    '.go': 'go',
+    '.php': 'php',
+    '.rb': 'ruby',
+    '.swift': 'swift',
+    '.kt': 'kotlin',
+    '.rs': 'rust',
+    '.ts': 'typescript',
+    '.tsx': 'typescript',
+    '.vue': 'vue',
+    '.htm': 'html',
+    '.less': 'css',
+    '.scss': 'css',
+    '.sass': 'css',
+    '.bash': 'shell',
+    '.zsh': 'shell',
+    '.bashrc': 'shell',
+    '.zshrc': 'shell',
+    '.env': 'text',
+    '.gitignore': 'text',
+    '.dockerignore': 'text',
+    '.Makefile': 'makefile',
+    'Makefile': 'makefile',
+    '.Dockerfile': 'dockerfile',
+    'Dockerfile': 'dockerfile',
+}
 
 class AICoder:
-    def __init__(self, infilename, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level):
-        self.infilename = infilename
+    def __init__(self, input_files, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level):
+        self.input_files = input_files
         self.outfilename = outfilename
         self.requirements = requirements
         self.model = model
@@ -105,7 +150,7 @@ class AICoder:
         self.context_length = context_length
         self.force = force
         self.debug_level = debug_level
-        self.program = self.read_program()
+        self.programs = self.read_programs()
         self.api_key = self.read_api_key()
         self.language = self.determine_language()
         self.user_content = self.create_user_content()
@@ -120,9 +165,14 @@ class AICoder:
 
         self.continuation_message = "<!--generation interrupted, continuing-->"
 
-    def read_program(self):
-        with open(self.infilename, 'r') as file:
-            return file.read()
+    def read_programs(self):
+        programs = {}
+        for infilename in self.input_files:
+            with open(infilename, 'r') as file:
+                programs[infilename] = file.read()
+            if self.debug_level >= 2:
+                print(f"\nDEBUG LEVEL 2: Read file {infilename} with content:\n{programs[infilename]}\n")
+        return programs
 
     def read_api_key(self):
         if models[self.model]['provider'] == 'openai':
@@ -146,28 +196,23 @@ class AICoder:
             sys.exit(1)
 
     def determine_language(self):
-        language_map = {
-            '.txt': 'text',
-            '.py': 'python',
-            '.pl': 'perl',
-            '.sql': 'sql',
-            '.sh': 'shell',
-        }
-        file_extension = os.path.splitext(self.infilename)[1]
-        return language_map.get(file_extension, 'text')  # Default to 'text' if unknown extension
+        # Determine the primary language based on the input files
+        languages = [language_map.get(os.path.splitext(infilename)[1], 'text') for infilename in self.input_files]
+        from collections import Counter
+        return Counter(languages).most_common(1)[0][0]  # Return the most common language
 
     def create_user_content(self):
-        return f"""
-USER: What follows is a {self.language} file. Please reference it for instructions following.
-
-```{self.language}
-{self.program}
-```
-
-{self.requirements}
-
-ASSISTANT:
-"""
+        user_content = "USER: What follows are files. Please reference them for instructions following.\n\n"
+        if self.debug_level >= 2:
+            print("\nDEBUG LEVEL 2: List of input files and their contents:")
+        for infilename, content in self.programs.items():
+            file_extension = os.path.splitext(infilename)[1]
+            language = language_map.get(file_extension, 'text')
+            user_content += f"\n### {infilename}\n```{language}\n{content}\n```\n"
+            if self.debug_level >= 2:
+                print(f"  File: {infilename}, Language: {language}, Content: {content[:100]}... (first 100 characters)\n")
+        user_content += f"\n{self.requirements}\n\nASSISTANT:\n"
+        return user_content
 
     def estimate_token_count(self, text):
         if self.tiktoken_available and models[self.model]['provider'] == 'openai':
@@ -175,8 +220,8 @@ ASSISTANT:
             encoding = tiktoken.encoding_for_model(self.model)
             return len(encoding.encode(text))
         else:
-            # Rule of thumb: character count is 4.3425 times the token count
-            return len(text) / 4.3425
+            # Rule of thumb: character count is 4.0 times the token count
+            return len(text) / 4.0
 
     def generate_response(self, prompt, temperature=0.7):
         response_chunks = []
@@ -227,13 +272,12 @@ ASSISTANT:
 
         if self.debug_level >= 3:
             print("\nDEBUG LEVEL 3: Final response JSON object from the model:")
-            print(json.dumps({"response_chunks": response_chunks, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "finish_reason": finish_reason}, indent=4))
+            print(json.dumps({"response_chunks": response_chunks, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "finish_reason": finish_reason}, indent=3))
 
         if self.debug_level >= 1: 
             print (f"\nestimated prompt tokens {estimated_prompt_tokens:.1f}")
             print (f" actual   prompt tokens {prompt_tokens}")
             print (f"actual bytes  per token {len(prompt + system_content) / prompt_tokens:.4f}")
-
 
         return response_chunks, prompt_tokens, completion_tokens, finish_reason
 
@@ -280,8 +324,8 @@ ASSISTANT:
         with open(self.outfilename, "a", encoding="utf-8") as response_file:
             response_file.writelines(all_response_chunks)
 
-        # Match the file permissions of the input file for the output file
-        shutil.copymode(self.infilename, self.outfilename)
+        # Match the file permissions of the first input file for the output file
+        shutil.copymode(self.input_files[0], self.outfilename)
 
         # Calculate costs
         input_cost = (prompt_tokens_total / 1_000_000) * self.input_cost_per_million
@@ -309,8 +353,8 @@ ASSISTANT:
 
 # Usage
 if __name__ == "__main__":
-    infilename, outfilename, requirements, model, force, debug_level = parse_command_line()
+    input_files, outfilename, requirements, model, force, debug_level = parse_command_line()
     model_info = models[model]
 
-    ai_coder = AICoder(infilename, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level)
+    ai_coder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level)
     ai_coder.run()
