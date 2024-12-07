@@ -263,9 +263,8 @@ class AICoder:
             completion_tokens = max(completion_tokens, chunk.usage.completion_tokens)
             finish_reason = chunk.choices[0].finish_reason
 
-            if self.debug_level >= 2:
-                print("\nDEBUG LEVEL 2: Received the following JSON object from the model:")
-                print(json.dumps(chunk, indent=4))
+            if self.debug_level >= 3:
+                print("\nDEBUG LEVEL 3: Received the following JSON object from the model:", chunk)
 
             if finish_reason is not None:
                 break
