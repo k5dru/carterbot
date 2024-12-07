@@ -7,13 +7,14 @@ import argparse
 from datetime import datetime
 import time
 import shutil  # Import shutil for copymode
+import importlib.util  # To check if tiktoken is installed
 
 # Define models and their costs, context lengths, and providers
 models = {
     "meta-llama/Meta-Llama-3.1-405B":         {"input_cost": 4.0, "output_cost": 4.0, "context_length": 32768, "max_tokens": 8192, "provider": "hyperbolic"},
     "meta-llama/Meta-Llama-3.1-405B-FP8":     {"input_cost": 2.0, "output_cost": 2.0, "context_length": 32768, "max_tokens": 8192, "provider": "hyperbolic"},
     "gpt-4o-mini":                           {"input_cost": 0.15, "output_cost": 0.6, "context_length": 128000, "max_tokens": 16384, "provider": "openai"},
-    "meta-llama/Meta-Llama-3.1-70B-Instruct": {"input_cost": 0.4, "output_cost": 0.4, "context_length": 16384, "max_tokens": 8192, "provider": "hyperbolic"},
+    "meta-llama/Llama-3.3-70B-Instruct":     {"input_cost": 0.4, "output_cost": 0.4, "context_length": 131072, "max_tokens": 131072, "provider": "hyperbolic"},
     "Qwen/Qwen2.5-72B-Instruct":              {"input_cost": 0.4, "output_cost": 0.4, "context_length": 16384, "max_tokens": 8192, "provider": "hyperbolic"},
     "Qwen/Qwen2.5-Coder-32B-Instruct":        {"input_cost": 0.2, "output_cost": 0.2, "context_length": 32768, "max_tokens": 8192, "provider": "hyperbolic"},
     "Qwen/QwQ-32B-Preview":                   {"input_cost": 0.2, "output_cost": 0.2, "context_length": 32768, "max_tokens": 8192, "provider": "hyperbolic"},
@@ -47,44 +48,32 @@ import pygame
 You got this. Thanks!
 """
 
-def print_help():
-    print("Usage: python autocoder.py --control-file <control_file> [--force] [--model <model>]")
-    print("       python autocoder.py --input-file <input_file> --output-file <output_file> --requirements <requirements> [--force] [--model <model>]")
-    print()
-    print("Options:")
-    print("  --control-file <control_file>  Specify a control file in JSON format.")
-    print("  --input-file <input_file>      Specify the input file.")
-    print("  --output-file <output_file>    Specify the output file.")
-    print("  --requirements <requirements>  Specify the requirements as a string.")
-    print("  --force                        Overwrite the output file if it exists and truncate it first.")
-    print("  --model <model>                Specify the model to use. Available models and their costs (input/output per million tokens):")
+def list_models():
+    print("Available models and their costs (input/output per million tokens):")
     for model, info in ordered_models:
-        print(f"                                {model:<40} ({info['input_cost']}/{info['output_cost']})")
-    print()
-    print("Sample control file (autocoder.ctl):")
-    print('''
-{
-    "input_file": "autocoder.py",
-    "output_file": "autocoder.001.py",
-    "requirements": "I want you to modify this code with these requirements:"
-}
-''')
-    sys.exit(1)
+        default_flag = " (default)" if model == default_model else ""
+        print(f"  {model:<40} ({info['input_cost']:.2f}/{info['output_cost']:.2f}){default_flag}")
+    sys.exit(0)
 
 def parse_command_line():
     parser = argparse.ArgumentParser(description="AI Coder Tool")
-    parser.add_argument("--control-file", dest="control_file", help="Specify a control file in JSON format.")
-    parser.add_argument("--input-file", dest="input_file", help="Specify the input file.")
-    parser.add_argument("--output-file", dest="output_file", help="Specify the output file.")
-    parser.add_argument("--requirements", dest="requirements", help="Specify the requirements as a string.")
-    parser.add_argument("--force", action="store_true", help="Overwrite the output file if it exists and truncate it first.")
-    parser.add_argument("--model", dest="model", default=default_model, help="Specify the model to use. Available models: " + ", ".join([model for model, _ in ordered_models]))
+    parser.add_argument("-c", "--control-file", dest="control_file", help="Specify a control file in JSON format.")
+    parser.add_argument("-i", "--input-file", dest="input_file", help="Specify the input file.")
+    parser.add_argument("-o", "--output-file", dest="output_file", help="Specify the output file.")
+    parser.add_argument("-r", "--requirements", dest="requirements", help="Specify the requirements as a string.")
+    parser.add_argument("-f", "--force", action="store_true", help="Overwrite the output file if it exists and truncate it first.")
+    parser.add_argument("-m", "--model", dest="model", default=default_model, help="Specify the model to use.")
+    parser.add_argument("-l", "--list-models", action="store_true", help="List available models and their costs.")
+    parser.add_argument("-d", "--debug-level", dest="debug_level", type=int, default=1, help="Set the debug level (1=info, 2=debug, 3=dump all JSON objects).")
 
     args = parser.parse_args()
 
+    if args.list_models:
+        list_models()
+
     if args.control_file:
         with open(args.control_file, 'r') as ctl_file:
-            config = json.load(ctl_file)
+            config = json.load(ctl_file, strict=False)
             infilename = config.get("input_file")
             outfilename = config.get("output_file")
             requirements = config.get("requirements")
@@ -94,16 +83,18 @@ def parse_command_line():
         requirements = args.requirements
 
     if not infilename or not outfilename or not requirements:
-        print_help()
+        parser.print_help()
+        sys.exit(1)
 
     if args.model not in [model for model, _ in ordered_models]:
         print(f"Model {args.model} not found. Please choose from the available models.")
-        print_help()
+        parser.print_help()
+        sys.exit(1)
 
-    return infilename, outfilename, requirements, args.model, args.force
+    return infilename, outfilename, requirements, args.model, args.force, args.debug_level
 
 class AICoder:
-    def __init__(self, infilename, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force):
+    def __init__(self, infilename, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level):
         self.infilename = infilename
         self.outfilename = outfilename
         self.requirements = requirements
@@ -113,14 +104,20 @@ class AICoder:
         self.max_tokens = max_tokens
         self.context_length = context_length
         self.force = force
+        self.debug_level = debug_level
         self.program = self.read_program()
         self.api_key = self.read_api_key()
         self.language = self.determine_language()
         self.user_content = self.create_user_content()
+
+        # Check if tiktoken is installed
+        self.tiktoken_available = importlib.util.find_spec("tiktoken") is not None
+
         if models[model]['provider'] == 'openai':
             self.client = openai.OpenAI(api_key=self.api_key, base_url="https://api.openai.com/v1")
         elif models[model]['provider'] == 'hyperbolic':
             self.client = openai.OpenAI(api_key=self.api_key, base_url="https://api.hyperbolic.xyz/v1")
+
         self.continuation_message = "<!--generation interrupted, continuing-->"
 
     def read_program(self):
@@ -172,18 +169,40 @@ USER: What follows is a {self.language} file. Please reference it for instructio
 ASSISTANT:
 """
 
+    def estimate_token_count(self, text):
+        if self.tiktoken_available and models[self.model]['provider'] == 'openai':
+            import tiktoken
+            encoding = tiktoken.encoding_for_model(self.model)
+            return len(encoding.encode(text))
+        else:
+            # Rule of thumb: character count is 4.3425 times the token count
+            return len(text) / 4.3425
+
     def generate_response(self, prompt, temperature=0.7):
         response_chunks = []
         prompt_tokens = 0
         completion_tokens = 0
         finish_reason = None
 
+        # Prepare the messages to be sent to the model
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": prompt},
+        ]
+
+        if self.debug_level >= 3:
+            print("\nDEBUG LEVEL 3: Sending the following JSON object to the model:")
+            print(json.dumps({"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": self.max_tokens, "stream": True}, indent=4))
+
+        # Estimate token count for the prompt and system content
+        estimated_prompt_tokens = self.estimate_token_count(prompt + system_content)
+        print(f"INFO: estimated_prompt_tokens ({estimated_prompt_tokens}) is {estimated_prompt_tokens/self.context_length * 100.0:.1f}% of safe limit.")
+        if estimated_prompt_tokens > 0.4 * self.context_length:
+            print(f"Warning: The estimated number of input tokens ({estimated_prompt_tokens:.0f}) approaches 40% of the model's context length ({self.context_length}).")
+
         chat_completion = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": prompt},
-            ],
+            messages=messages,
             temperature=temperature,
             max_tokens=self.max_tokens,
             stream=True,  # Enable streaming
@@ -199,8 +218,22 @@ ASSISTANT:
             completion_tokens = max(completion_tokens, chunk.usage.completion_tokens)
             finish_reason = chunk.choices[0].finish_reason
 
+            if self.debug_level >= 2:
+                print("\nDEBUG LEVEL 2: Received the following JSON object from the model:")
+                print(json.dumps(chunk, indent=4))
+
             if finish_reason is not None:
                 break
+
+        if self.debug_level >= 3:
+            print("\nDEBUG LEVEL 3: Final response JSON object from the model:")
+            print(json.dumps({"response_chunks": response_chunks, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "finish_reason": finish_reason}, indent=4))
+
+        if self.debug_level >= 1: 
+            print (f"\nestimated prompt tokens {estimated_prompt_tokens:.1f}")
+            print (f" actual   prompt tokens {prompt_tokens}")
+            print (f"actual bytes  per token {len(prompt + system_content) / prompt_tokens:.4f}")
+
 
         return response_chunks, prompt_tokens, completion_tokens, finish_reason
 
@@ -276,8 +309,8 @@ ASSISTANT:
 
 # Usage
 if __name__ == "__main__":
-    infilename, outfilename, requirements, model, force = parse_command_line()
+    infilename, outfilename, requirements, model, force, debug_level = parse_command_line()
     model_info = models[model]
 
-    ai_coder = AICoder(infilename, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force)
+    ai_coder = AICoder(infilename, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level)
     ai_coder.run()
