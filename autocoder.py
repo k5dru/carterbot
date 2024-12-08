@@ -1,4 +1,4 @@
-#!python3
+#!/usr/bin/python3
 import sys
 import os
 import json
@@ -64,7 +64,7 @@ def parse_command_line():
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite the output file if it exists and truncate it first.")
     parser.add_argument("-m", "--model", dest="model", default=default_model, help="Specify the model to use.")
     parser.add_argument("-l", "--list-models", action="store_true", help="List available models and their costs.")
-    parser.add_argument("-d", "--debug-level", dest="debug_level", type=int, default=1, help="Set the debug level (1=info, 2=debug, 3=dump all JSON objects).")
+    parser.add_argument("-d", "--debug-level", dest="debug_level", type=int, default=1, help="Set the debug level (0=silent, 1=info, 2=debug, 3=dump all JSON objects).")
 
     args = parser.parse_args()
 
@@ -74,27 +74,33 @@ def parse_command_line():
     if args.control_file:
         with open(args.control_file, 'r') as ctl_file:
             config = json.load(ctl_file, strict=False)
-            input_files = config.get("input_files")
-            outfilename = config.get("output_file")
-            requirements = config.get("requirements")
+            input_files = config.get("input_files", args.input_files)
+            outfilename = config.get("output_file", args.output_file)
+            requirements = config.get("requirements", args.requirements)
+            model = config.get("model", args.model)
+            force = config.get("force", args.force)
+            debug_level = config.get("debug_level", args.debug_level)
     else:
         input_files = args.input_files
         outfilename = args.output_file
         requirements = args.requirements
+        model = args.model
+        force = args.force
+        debug_level = args.debug_level
 
     if not input_files or not outfilename or not requirements:
         parser.print_help()
         sys.exit(1)
     else:
-        if args.debug_level > 2:
-            print("DEBUG: input_files:", input_files)
+        if debug_level > 2:
+            print("input_files:", input_files)
 
-    if args.model not in [model for model, _ in ordered_models]:
-        print(f"Model {args.model} not found. Please choose from the available models.")
+    if model not in [model for model, _ in ordered_models]:
+        print(f"Model {model} not found. Please choose from the available models.")
         parser.print_help()
         sys.exit(1)
 
-    return input_files, outfilename, requirements, args.model, args.force, args.debug_level
+    return input_files, outfilename, requirements, model, force, debug_level
 
 # Updated language map to include more common Unix text file types
 language_map = {
@@ -173,19 +179,18 @@ class AICoder:
         for infilename in self.input_files:
             with open(infilename, 'r') as file:
                 programs[infilename] = file.read()
-            if self.debug_level >= 2:
-                print(f"\nDEBUG LEVEL 2: Read file {infilename} with content:\n{programs[infilename]}\n")
+            self.debug(2, f"Read file {infilename} with content:\n{programs[infilename]}\n")
         return programs
 
     def read_api_key(self):
         if models[self.model]['provider'] == 'openai':
             api_key = os.environ.get("OPENAI_API_KEY")
-            if api_key:
-                return api_key.strip()
         elif models[self.model]['provider'] == 'hyperbolic':
             api_key = os.environ.get("HYPERBOLIC_API_KEY")
-            if api_key:
-                return api_key.strip()
+
+        if api_key:
+            return api_key.strip()
+
         # If not found in environment variables, read from a file
         try:
             if models[self.model]['provider'] == 'openai':
@@ -195,7 +200,7 @@ class AICoder:
                 with open('hyperbolic-api-key.txt', 'r') as file:
                     return file.read().strip()
         except FileNotFoundError:
-            print(f"API key file not found for {models[self.model]['provider']}. Please ensure the key is set in an environment variable or in the correct file.")
+            self.error(f"API key file not found for {models[self.model]['provider']}. Please ensure the key is set in an environment variable or in the correct file.")
             sys.exit(1)
 
     def determine_language(self):
@@ -206,15 +211,13 @@ class AICoder:
 
     def create_user_content(self):
         user_content = "USER: What follows are files. Please reference them for instructions following.\n\n"
-        if self.debug_level >= 2:
-            print("\nDEBUG LEVEL 2: List of input files and their contents:")
+        self.debug(2, "List of input files and their contents:")
         for infilename, content in self.programs.items():
             file_extension = os.path.splitext(infilename)[1]
             language = language_map.get(file_extension, 'text')
             user_content += f"\n### {infilename}\n```{language}\n{content}\n```\n"
-            if self.debug_level >= 2:
-                print(f"  File: {infilename}, Language: {language}, Content: {content[:100]}... (first 100 characters)\n")
-        user_content += f"\n{self.requirements}\n\nASSISTANT:\n"
+            self.debug(2, f"File: {infilename}, Language: {language}, Content: {content[:100]}... (first 100 characters)\n")
+        user_content += f"\n{self.requirements}\n\nNote: Since your answer will be parsed programatically, please place any narrative such as 'Certainly! ...' in a text block named generation_comments.txt, and the full code requested in a code block named {self.outfilename}. Thanks!\n\nASSISTANT:\n"
         return user_content
 
     def estimate_token_count(self, text):
@@ -238,15 +241,13 @@ class AICoder:
             {"role": "user", "content": prompt},
         ]
 
-        if self.debug_level >= 3:
-            print("\nDEBUG LEVEL 3: Sending the following JSON object to the model:")
-            print(json.dumps({"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": self.max_tokens, "stream": True}, indent=4))
+        self.debug(3, json.dumps({"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": self.max_tokens, "stream": True}, indent=4))
 
         # Estimate token count for the prompt and system content
         estimated_prompt_tokens = self.estimate_token_count(prompt + system_content)
-        print(f"INFO: estimated_prompt_tokens ({estimated_prompt_tokens}) is {estimated_prompt_tokens/self.context_length * 100.0:.1f}% of safe limit.")
+        self.debug(1, f"Estimated prompt tokens: {estimated_prompt_tokens} ({estimated_prompt_tokens/self.context_length * 100.0:.1f}% of safe limit)")
         if estimated_prompt_tokens > 0.4 * self.context_length:
-            print(f"Warning: The estimated number of input tokens ({estimated_prompt_tokens:.0f}) approaches 40% of the model's context length ({self.context_length}).")
+            self.warn(f"The estimated number of input tokens ({estimated_prompt_tokens:.0f}) approaches 40% of the model's context length ({self.context_length}).")
 
         chat_completion = self.client.chat.completions.create(
             model=self.model,
@@ -266,20 +267,17 @@ class AICoder:
             completion_tokens = max(completion_tokens, chunk.usage.completion_tokens)
             finish_reason = chunk.choices[0].finish_reason
 
-            if self.debug_level >= 3:
-                print("\nDEBUG LEVEL 3: Received the following JSON object from the model:", chunk)
+            self.debug(3, f"\nReceived the following JSON object from the model:\n{chunk}")
 
             if finish_reason is not None:
                 break
 
-        if self.debug_level >= 3:
-            print("\nDEBUG LEVEL 3: Final response JSON object from the model:")
-            print(json.dumps({"response_chunks": response_chunks, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "finish_reason": finish_reason}, indent=3))
+        self.debug(3, "\nFinal response JSON object from the model:")
+        self.debug(3, json.dumps({"response_chunks": response_chunks, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "finish_reason": finish_reason}, indent=3))
 
-        if self.debug_level >= 1: 
-            print (f"\nestimated prompt tokens {estimated_prompt_tokens:.1f}")
-            print (f" actual   prompt tokens {prompt_tokens}")
-            print (f"actual bytes  per token {len(prompt + system_content) / prompt_tokens:.4f}")
+        self.debug(1, f"Estimated prompt tokens: {estimated_prompt_tokens:.1f}")
+        self.debug(1, f"Actual prompt tokens: {prompt_tokens}")
+        self.debug(1, f"Actual bytes per token: {len(prompt + system_content) / prompt_tokens:.4f}")
 
         return response_chunks, prompt_tokens, completion_tokens, finish_reason
 
@@ -292,9 +290,9 @@ class AICoder:
         if os.path.exists(self.outfilename) and self.force:
             with open(self.outfilename, "w", encoding="utf-8") as response_file:
                 response_file.truncate(0)  # Truncate the file first
-            print(f"{self.outfilename} exists already; truncating and overwriting as requested.")
+            self.debug(1, f"{self.outfilename} exists already; truncating and overwriting as requested.")
         elif os.path.exists(self.outfilename) and not self.force:
-            print(f"{self.outfilename} exists already; cowardly refusing.")
+            self.error(f"{self.outfilename} exists already; cowardly refusing.")
             sys.exit(1)
 
         # Main loop for generating and continuing responses
@@ -336,12 +334,12 @@ class AICoder:
 
         # Print the program run details
         end_timestring = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"\nProgram Begin: {start_timestring}")
-        print(f"Program End  : {end_timestring}")
-        print(f"  Input tokens: {prompt_tokens_total}, Cost: ${input_cost:.6f}")
-        print(f"  Output tokens: {completion_tokens_total}, Cost: ${output_cost:.6f}")
-        print(f"  Total cost: ${total_cost:.6f}")
-        print(f"  Final finish reason: {final_reason}")
+        self.debug(1, f"\nProgram Begin: {start_timestring}")
+        self.debug(1, f"Program End  : {end_timestring}")
+        self.debug(1, f"Input tokens: {prompt_tokens_total}, Cost: ${input_cost:.6f}")
+        self.debug(1, f"Output tokens: {completion_tokens_total}, Cost: ${output_cost:.6f}")
+        self.debug(1, f"Total cost: ${total_cost:.6f}")
+        self.debug(1, f"Final finish reason: {final_reason}")
 
         # Calculate the duration of the run in seconds
         end_time = time.time()
@@ -351,12 +349,25 @@ class AICoder:
         cost_per_second = total_cost / duration_seconds if duration_seconds > 0 else 0
         eight_hour_cost = cost_per_second * (8 * 60 * 60)
 
-        print(f"If I literally run this all day (8 hours) at this rate, it would cost: ${eight_hour_cost:.2f}")
+        self.debug(1, f"If I literally run this all day (8 hours) at this rate, it would cost: ${eight_hour_cost:.2f}")
+
+    def debug(self, level, message):
+        if self.debug_level >= level:
+            print(message, flush=True)
+
+    def info(self, message):
+        self.debug(1, message)
+
+    def warn(self, message):
+        self.debug(1, f"Warning: {message}")
+
+    def error(self, message):
+        self.debug(1, f"Error: {message}")
 
 # Usage
 if __name__ == "__main__":
     input_files, outfilename, requirements, model, force, debug_level = parse_command_line()
     model_info = models[model]
 
-    ai_coder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level)
-    ai_coder.run()
+    autocoder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level)
+    autocoder.run()
