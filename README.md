@@ -8,12 +8,39 @@ Autocoder is a command-line tool designed to leverage the power of artificial in
 
 The primary goal of Autocoder is to provide a flexible and user-friendly tool for generating code using AI models. The project aims to demonstrate the capabilities of AI in code generation and provide a useful tool for developers. Key features include:
 
-- Support for multiple AI models from different providers.
-- Estimating token count for input and output to manage costs effectively.
-- A continuation mechanism to handle responses that exceed the model's context length.
-- System prompt to ensure seamless continuation of responses after interruptions.
-- Integration with `argparse` for setting options and parameters.
-- Debugging modes to help with troubleshooting and understanding the tool's behavior.
+- **Support for Multiple AI Models**: Autocoder can use different models from various providers to generate code. This flexibility allows users to choose the best model based on their specific needs and budgets.
+- **Token Count Estimation**: The tool estimates the number of input and output tokens to help users manage costs effectively. This is crucial for optimizing the use of API credits.
+- **Continuation Mechanism**: Autocoder handles responses that exceed the model's context length by using a continuation message and system prompt. This ensures that the generated code is complete and coherent.
+- **System Prompt**: The system prompt guides the AI to provide detailed, neutral, and fact-based answers, facilitating inquiry without judgment or censorship.
+- **Integration with `argparse`**: Autocoder uses `argparse` for setting options and parameters, making it easy to use and customize.
+- **Debugging Modes**: The tool includes different debugging modes to help with troubleshooting and understanding its behavior.
+
+## Design Points and Rationale
+------------------------------
+
+### Multiple Model Support
+- **Reason**: By supporting multiple models from different providers, Autocoder offers users a range of options. This is particularly beneficial given the variability in model performance and pricing.
+- **Implementation**: Models are defined in a dictionary with their respective costs, context lengths, and providers. Users can specify their preferred model using the `-m` or `--model` option.
+
+### Token Count Estimation
+- **Reason**: Estimating token counts helps users manage their API credits more effectively. It also ensures that the input does not exceed the model's context length, which could lead to incomplete or erroneous responses.
+- **Implementation**: A function `estimate_token_count` is used to estimate the number of tokens in the input. If `tiktoken` is available and the model is from OpenAI, it uses `tiktoken` for accurate token counting. Otherwise, it uses a rule of thumb based on character counts.
+
+### Continuation Mechanism
+- **Reason**: AI models have context length limitations. When the generated response exceeds these limits, a continuation mechanism is necessary to ensure the response is complete.
+- **Implementation**: The tool uses a continuation message (`<!--generation interrupted, continuing-->`) to request the completion of the response. It also ensures that the response is appended correctly to the output file.
+
+### System Prompt
+- **Reason**: The system prompt ensures that the AI behaves consistently and provides the expected type of responses. It also allows the tool to handle interruptions seamlessly.
+- **Implementation**: The system prompt is defined as a constant string and sent with every request to the AI model.
+
+### Integration with `argparse`
+- **Reason**: Using `argparse` makes the tool more accessible and user-friendly. It allows users to specify various options and parameters easily.
+- **Implementation**: The tool parses command-line arguments using `argparse` and uses these to configure the behavior of the AI model.
+
+### Debugging Modes
+- **Reason**: Debugging modes help users understand how the tool works and troubleshoot issues. They provide detailed information about the input, output, and internal state of the tool.
+- **Implementation**: The tool supports different debug levels, which can be specified using the `-d` or `--debug-level` option. Higher debug levels provide more detailed output.
 
 ## Similar Projects
 -------------------
@@ -54,19 +81,32 @@ Autocoder is a personal non-work project created by James Lemley, who has no con
 ## Supported Models
 --------------------
 
-The following models are currently supported by Autocoder:
+The following models are currently supported by Autocoder. The costs, context lengths, and max tokens are as specified in the code.
 
 | Model Name                      | Input Cost (per million tokens) | Output Cost (per million tokens) | Context Length | Max Tokens | Provider   |
 |---------------------------------|---------------------------------|----------------------------------|----------------|------------|------------|
 | gpt-4o-mini                     | 0.15                            | 0.6                              | 128000         | 16384      | OpenAI     |
-| meta-llama/Llama-3.3-70B-Instruct | 0.4                             | 0.4                              | 131072         | 131072     | Hyperbolic |
+| meta-llama/Llama-3.3-70B-Instruct | 0.4                             | 0.4                              | 131072         | 65535      | Hyperbolic |
 | Qwen/Qwen2.5-Coder-32B-Instruct   | 0.2                             | 0.2                              | 131072         | 8192       | Hyperbolic |
-| Qwen/QwQ-32B-Preview            | 0.2                             | 0.2                              | 32768          | 32768      | Hyperbolic |
+| Qwen/QwQ-32B-Preview            | 0.2                             | 0.2                              | 32768          | 16384      | Hyperbolic |
 
-## Usage Examples
+## Getting Started
 ------------------
 
-### Example 1: Generate a Basic Python Script
+### Prerequisites
+1. **Python 3.x**: Ensure you have Python 3.x installed on your system.
+2. **OpenAI or Hyperbolic API Key**: Obtain an API key from a supported provider. It is recommended to store the API key as an environment variable.
+    - For OpenAI, set the `OPENAI_API_KEY` environment variable.
+    - For Hyperbolic, set the `HYPERBOLIC_API_KEY` environment variable.
+3. **Install Required Libraries**: Install the necessary Python packages using pip.
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+### Basic Usage
+To use Autocoder, run the `autocoder.py` script with the required arguments. Here are some examples:
+
+#### Example 1: Generate a Basic Python Script
 
 **Requirements**: Create a simple Python script that prints "Hello, World!".
 
@@ -75,7 +115,7 @@ The following models are currently supported by Autocoder:
 ./autocoder.py -i input_script.py -o output_script.py -r "Create a simple Python script that prints 'Hello, World!'."
 ```
 
-### Example 2: Use the `argparse` Library to Set Options
+#### Example 2: Use the `argparse` Library to Set Options
 
 **Requirements**: Use the `argparse` library to set options for a Python script that accepts a filename and prints its contents.
 
@@ -84,19 +124,36 @@ The following models are currently supported by Autocoder:
 ./autocoder.py -i input_script.py -o output_script.py -r "Use the argparse library to set options for a Python script that accepts a filename and prints its contents."
 ```
 
-## Usage
----------
+### Advanced Usage
+Autocoder includes several options to customize its behavior. You can specify multiple input files, overwrite the output file, choose a model, and set the debug level.
 
-To use Autocoder, simply run the `autocoder.py` script with the required arguments. For more information, please refer to the `autocoder.py` file and the command-line help.
+**Command**:
+```bash
+./autocoder.py -i file1.py file2.py -o output.py -r "Add functionality to handle multiple input files." -m "Qwen/Qwen2.5-Coder-32B-Instruct" -f -d 2
+```
 
-## Requirements
----------------
+### Options
+- `-c`, `--control-file`: Specify a control file in JSON format.
+- `-i`, `--input-files`: Specify one or more input files. You can use this option multiple times or provide multiple files separated by spaces.
+- `-o`, `--output-file`: Specify the output file.
+- `-r`, `--requirements`: Specify the requirements as a string.
+- `-f`, `--force`: Overwrite the output file if it exists and truncate it first.
+- `-m`, `--model`: Specify the model to use. The default model is `Qwen/Qwen2.5-Coder-32B-Instruct`.
+- `-l`, `--list-models`: List available models and their costs.
+- `-d`, `--debug-level`: Set the debug level (1=info, 2=debug, 3=dump all JSON objects).
 
-* Python 3.x
-* `openai` library
-* API key from a supported provider (OpenAI or Hyperbolic)
+## Potential Future Development Options
+--------------------------------------
+
+1. **Support for Additional Models**: Expand the list of supported models to include more providers and models as they become available.
+2. **Improved Token Count Estimation**: Enhance the token count estimation mechanism to use `tiktoken` for all models, if possible.
+3. **Graphical User Interface (GUI)**: Develop a GUI for users who prefer a more visual interface.
+4. **Batch Processing**: Add support for batch processing multiple sets of input files and requirements.
+5. **Integration with Version Control Systems (VCS)**: Integrate Autocoder with VCS systems to automatically commit and track changes in generated code.
+6. **Enhanced Debugging Tools**: Improve debugging tools to provide more detailed insights into the tool's behavior and performance.
+7. **User Feedback Loop**: Implement a user feedback loop to continuously improve the quality and relevance of generated code.
 
 ## Conclusion
 ----------
 
-Autocoder is a powerful tool for generating code using AI models. Its flexibility, support for multiple models, and user-friendly interface make it an attractive choice for developers. With the availability of free API keys and credits, there's never been a better time to explore the capabilities of AI-powered code generation.
+Autocoder is a powerful tool for generating code using AI models. Its flexibility, support for multiple models, and user-friendly interface make it an attractive choice for developers. With the availability of free API keys and credits, there's never been a better time to explore the capabilities of AI-powered code generation. Whether you're a developer looking to speed up your workflow or an AI enthusiast interested in code generation, Autocoder has something to offer.

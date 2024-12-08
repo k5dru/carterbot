@@ -1,0 +1,3 @@
+# requirements for packages installable vi pip:
+openai
+tiktoken
