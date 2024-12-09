@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/home/jlemley/myenv/bin/python3
 import sys
 import os
 import json
@@ -221,7 +221,11 @@ class AICoder:
         return user_content
 
     def estimate_token_count(self, text):
-        if self.tiktoken_available and models[self.model]['provider'] == 'openai':
+        # Temporarily disable tiktoken for OpenAI models
+        if self.model == 'gpt-4o-mini':  # Disable tiktoken for this specific model
+            # Rule of thumb: character count is 4.0 times the token count
+            return len(text) / 4.0
+        elif self.tiktoken_available and models[self.model]['provider'] == 'openai':
             import tiktoken
             encoding = tiktoken.encoding_for_model(self.model)
             return len(encoding.encode(text))
@@ -258,25 +262,37 @@ class AICoder:
         )
 
         for chunk in chat_completion:
+            self.debug(3, f"\nReceived the following JSON object from the model:\n{chunk}")
             if chunk.choices[0].delta.content:
                 partial_response = chunk.choices[0].delta.content
                 print(partial_response, end='', flush=True)
 
                 response_chunks.append(partial_response)
-            prompt_tokens = max(prompt_tokens, chunk.usage.prompt_tokens)
-            completion_tokens = max(completion_tokens, chunk.usage.completion_tokens)
-            finish_reason = chunk.choices[0].finish_reason
 
-            self.debug(3, f"\nReceived the following JSON object from the model:\n{chunk}")
+            if chunk.usage:
+                if 'prompt_tokens' in chunk.usage:
+                    prompt_tokens = max(prompt_tokens, chunk.usage['prompt_tokens'])
+                if 'completion_tokens' in chunk.usage:
+                    completion_tokens = max(completion_tokens, chunk.usage['completion_tokens'])
+                finish_reason = chunk.choices[0].finish_reason
 
             if finish_reason is not None:
                 break
 
-        self.debug(3, "\nFinal response JSON object from the model:")
-        self.debug(3, json.dumps({"response_chunks": response_chunks, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "finish_reason": finish_reason}, indent=3))
+        # If prompt_tokens or completion_tokens were not provided in the response, estimate them
+        if prompt_tokens == 0 or completion_tokens == 0:
+            full_response = ''.join(response_chunks)
+            if prompt_tokens == 0:
+                prompt_tokens = estimated_prompt_tokens
+            if completion_tokens == 0:
+                completion_tokens = self.estimate_token_count(full_response)
+
+        self.debug(4, "\nFinal response JSON object from the model:")
+        self.debug(4, json.dumps({"response_chunks": response_chunks, "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "finish_reason": finish_reason}, indent=3))
 
         self.debug(1, f"Estimated prompt tokens: {estimated_prompt_tokens:.1f}")
-        self.debug(1, f"Actual prompt tokens: {prompt_tokens}")
+        self.debug(1, f"Actual/Estimated prompt tokens: {prompt_tokens}")
+        self.debug(1, f"Actual/Estimated completion tokens: {completion_tokens}")
         self.debug(1, f"Actual bytes per token: {len(prompt + system_content) / prompt_tokens:.4f}")
 
         return response_chunks, prompt_tokens, completion_tokens, finish_reason
