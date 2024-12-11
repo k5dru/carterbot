@@ -16,16 +16,16 @@ models = {
     "gpt-4o-2024-05-13":                     {"input_cost": 5.00,  "output_cost": 15.0, "context_length": 128000, "max_tokens": 16384, "provider": "openai"},
     "o1-preview":                            {"input_cost": 15.00, "output_cost": 60.0, "context_length": 128000, "max_tokens": 16384, "provider": "openai"},
     "meta-llama/Llama-3.3-70B-Instruct":     {"input_cost": 0.4,   "output_cost": 0.4,  "context_length": 131072, "max_tokens": 65535, "provider": "hyperbolic"},
-    "Qwen/Qwen2.5-Coder-32B-Instruct":       {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 131072, "max_tokens": 8192, " provider": "hyperbolic"},
-    "Qwen/QwQ-32B-Preview":                  {"input_cost": 0.2,   "output_cost": 0.2, " context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
+    "Qwen/Qwen2.5-Coder-32B-Instruct":       {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 131072, "max_tokens": 8192,  "provider": "hyperbolic"},
+    "Qwen/QwQ-32B-Preview":                  {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
 }
 
 # Reorder models from most expensive to least expensive
 ordered_models = sorted(models.items(), key=lambda x: (-x[1]['input_cost'], -x[1]['output_cost'], x[0]))
 
 # Select a default model
-default_model = 'Qwen/Qwen2.5-Coder-32B-Instruct' # very good at coding tasks and very low cost
 default_model = 'gpt-4o-mini'                     # equivalent to Qwen2.5-Coder-32B-Instruct, but from OpenAI
+default_model = 'Qwen/Qwen2.5-Coder-32B-Instruct' # very good at coding tasks and very low cost
 
 continuation_message = "<!--generation interrupted, continuing-->"  # this needs to be defined before the system message. THIS SHOULD NOT CHANGE
 # The system prompt is sent out-of-band to instruct the model how to act.  THIS SHOULD NOT CHANGE WITHOUT CONSULTING THE LEAD DEVELOPER
