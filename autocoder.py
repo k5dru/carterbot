@@ -1,4 +1,4 @@
-#!/home/jlemley/myenv/bin/python3
+#!/usr/bin/python3
 import sys
 import os
 import json
@@ -69,11 +69,28 @@ def parse_command_line():
     parser.add_argument("-m", "--model", dest="model", default=default_model, help="Specify the model to use.")
     parser.add_argument("-l", "--list-models", action="store_true", help="List available models and their costs.")
     parser.add_argument("-d", "--debug-level", dest="debug_level", type=int, default=1, help="Set the debug level (0=silent, 1=info, 2=debug, 3=dump all JSON objects).")
+    parser.add_argument("-t", "--temperature", dest="temperature", type=float, default=0.7, help="Set the temperature for the model.")
+    parser.add_argument("--create-controlfile", dest="new_controlfile", help="Create a control file with the specified parameters in JSON format.")
 
     args = parser.parse_args()
 
     if args.list_models:
         list_models()
+
+    if args.new_controlfile:
+        config = {
+            "input_files": args.input_files,
+            "output_file": args.output_file,
+            "requirements": args.requirements,
+            "model": args.model,
+            "force": args.force,
+            "debug_level": args.debug_level,
+            "temperature": args.temperature,
+        }
+        with open(args.new_controlfile, 'w') as ctl_file:
+            json.dump(config, ctl_file, indent=4)
+        print(f"Control file created: {args.new_controlfile}")
+        sys.exit(0)
 
     if args.control_file:
         with open(args.control_file, 'r') as ctl_file:
@@ -84,6 +101,7 @@ def parse_command_line():
             model = config.get("model", args.model)
             force = config.get("force", args.force)
             debug_level = config.get("debug_level", args.debug_level)
+            temperature = config.get("temperature", args.temperature)
     else:
         input_files = args.input_files
         outfilename = args.output_file
@@ -91,6 +109,7 @@ def parse_command_line():
         model = args.model
         force = args.force
         debug_level = args.debug_level
+        temperature = args.temperature
 
     if not input_files or not outfilename or not requirements:
         parser.print_help()
@@ -104,7 +123,7 @@ def parse_command_line():
         parser.print_help()
         sys.exit(1)
 
-    return input_files, outfilename, requirements, model, force, debug_level
+    return input_files, outfilename, requirements, model, force, debug_level, temperature
 
 # Updated language map to include more common Unix text file types
 language_map = {
@@ -152,7 +171,7 @@ language_map = {
 }
 
 class AICoder:
-    def __init__(self, input_files, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level):
+    def __init__(self, input_files, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level, temperature):
         self.input_files = input_files
         self.outfilename = outfilename
         self.requirements = requirements
@@ -163,6 +182,7 @@ class AICoder:
         self.context_length = context_length
         self.force = force
         self.debug_level = debug_level
+        self.temperature = temperature
         self.programs = self.read_programs()
         self.api_key = self.read_api_key()
         self.language = self.determine_language()
@@ -195,17 +215,8 @@ class AICoder:
         if api_key:
             return api_key.strip()
 
-        # If not found in environment variables, read from a file
-        try:
-            if models[self.model]['provider'] == 'openai':
-                with open('openai-api-key.txt', 'r') as file:
-                    return file.read().strip()
-            elif models[self.model]['provider'] == 'hyperbolic':
-                with open('hyperbolic-api-key.txt', 'r') as file:
-                    return file.read().strip()
-        except FileNotFoundError:
-            self.error(f"API key file not found for {models[self.model]['provider']}. Please ensure the key is set in an environment variable or in the correct file.")
-            sys.exit(1)
+        self.error(f"API key not found in environment variables for {models[self.model]['provider']}. Please ensure the key is set correctly.")
+        sys.exit(1)
 
     def determine_language(self):
         # Determine the primary language based on the input files
@@ -237,7 +248,7 @@ class AICoder:
             # Rule of thumb: character count is 4.0 times the token count
             return len(text) / 4.0
 
-    def generate_response(self, prompt, temperature=0.7):
+    def generate_response(self, prompt):
         response_chunks = []
         prompt_tokens = 0
         completion_tokens = 0
@@ -249,7 +260,7 @@ class AICoder:
             {"role": "user", "content": prompt},
         ]
 
-        self.debug(3, json.dumps({"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": self.max_tokens, "stream": True}, indent=4))
+        self.debug(3, json.dumps({"model": self.model, "messages": messages, "temperature": self.temperature, "max_tokens": self.max_tokens, "stream": True}, indent=4))
 
         # Estimate token count for the prompt and system content
         estimated_prompt_tokens = self.estimate_token_count(prompt + system_content)
@@ -260,7 +271,7 @@ class AICoder:
         chat_completion = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            temperature=temperature,
+            temperature=self.temperature,
             max_tokens=self.max_tokens,
             stream=True,  # Enable streaming
         )
@@ -373,21 +384,20 @@ class AICoder:
 
     def debug(self, level, message):
         if self.debug_level >= level:
-            print(message, flush=True)
-
-    def info(self, message):
-        self.debug(1, message)
-
-    def warn(self, message):
-        self.debug(1, f"Warning: {message}")
+            print(message, file=sys.stderr)
 
     def error(self, message):
-        self.debug(1, f"Error: {message}")
+        print(f"ERROR: {message}", file=sys.stderr)
+        sys.exit(1)
+
+    def warn(self, message):
+        if self.debug_level > 0:
+            print(f"WARNING: {message}", file=sys.stderr)
 
 # Usage
 if __name__ == "__main__":
-    input_files, outfilename, requirements, model, force, debug_level = parse_command_line()
+    input_files, outfilename, requirements, model, force, debug_level, temperature = parse_command_line()
     model_info = models[model]
 
-    autocoder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level)
+    autocoder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level, temperature)
     autocoder.run()
