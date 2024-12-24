@@ -9,6 +9,10 @@ import time
 import shutil  # Import shutil for copymode
 import importlib.util  # To check if tiktoken is installed
 
+# Define the version number and author
+VERSION = "0.31"
+AUTHOR = "James Lemley (https://github.com/k5dru/)"
+
 # Define models and their costs, context lengths, and providers
 models = {
     "gpt-4o-mini":                           {"input_cost": 0.15,  "output_cost": 0.6,  "context_length": 128000, "max_tokens": 16384, "provider": "openai"},
@@ -60,7 +64,7 @@ def list_models():
     sys.exit(0)
 
 def parse_command_line():
-    parser = argparse.ArgumentParser(description="AI Coder Tool")
+    parser = argparse.ArgumentParser(description=f"AI Coder Tool (Version: {VERSION}) by {AUTHOR}")
     parser.add_argument("-c", "--control-file", dest="control_file", help="Specify a control file in JSON format.")
     parser.add_argument("-i", "--input-files", dest="input_files", nargs='+', help="Specify one or more input files. You can use this option multiple times or provide multiple files separated by spaces.")
     parser.add_argument("-o", "--output-file", dest="output_file", help="Specify the output file.")
@@ -264,9 +268,15 @@ class AICoder:
 
         # Estimate token count for the prompt and system content
         estimated_prompt_tokens = self.estimate_token_count(prompt + system_content)
-        self.debug(1, f"Estimated prompt tokens: {estimated_prompt_tokens} ({estimated_prompt_tokens/self.context_length * 100.0:.1f}% of safe limit)")
-        if estimated_prompt_tokens > 0.4 * self.context_length:
-            self.warn(f"The estimated number of input tokens ({estimated_prompt_tokens:.0f}) approaches 40% of the model's context length ({self.context_length}).")
+        actual_percentage = (estimated_prompt_tokens / self.context_length) * 100.0
+        self.debug(1, f"Estimated prompt tokens: {estimated_prompt_tokens:.1f} ({actual_percentage:.1f}% of safe limit)")
+        if actual_percentage > 40.0:
+            self.warn(f"The estimated number of input tokens ({estimated_prompt_tokens:.0f}) approaches {actual_percentage:.1f}% of the model's context length ({self.context_length}).")
+        if actual_percentage > 35.0:
+            self.warn(f"Using over 35% of the context may result in very poor results. Your current usage is {actual_percentage:.1f}%.")
+        if actual_percentage >= 48.0:
+            self.error(f"The estimated number of input tokens ({estimated_prompt_tokens:.0f}) is {actual_percentage:.1f}% of the model's context length ({self.context_length}). This exceeds the safe limit and may result in incomplete or poor quality responses.")
+            sys.exit(1)
 
         chat_completion = self.client.chat.completions.create(
             model=self.model,

@@ -12,8 +12,7 @@ The primary goal of Autocoder is to provide a flexible and user-friendly tool fo
 - **Token Count Estimation**: The tool estimates the number of input and output tokens to help users manage costs effectively. This is crucial for optimizing the use of API credits.
 - **Continuation Mechanism**: Autocoder handles responses that exceed the model's context length by using a continuation message and system prompt. This ensures that the generated code is complete and coherent.
 - **System Prompt**: The system prompt guides the AI to provide detailed, neutral, and fact-based answers, facilitating inquiry without judgment or censorship.
-- **Integration with `argparse`**: Autocoder uses `argparse` for setting options and parameters, making it easy to use and customize.
-- **Debugging Modes**: The tool includes different debugging modes to help with troubleshooting and understanding its behavior.
+- **Control File**: Users can save sets of parameters that work well in a control file for later use, making it easier to replicate successful configurations.
 
 ## Design Points and Rationale
 ------------------------------
@@ -34,13 +33,9 @@ The primary goal of Autocoder is to provide a flexible and user-friendly tool fo
 - **Reason**: The system prompt ensures that the AI behaves consistently and provides the expected type of responses. It also allows the tool to handle interruptions seamlessly.
 - **Implementation**: The system prompt is defined as a constant string and sent with every request to the AI model.
 
-### Integration with `argparse`
-- **Reason**: Using `argparse` makes the tool more accessible and user-friendly. It allows users to specify various options and parameters easily.
-- **Implementation**: The tool parses command-line arguments using `argparse` and uses these to configure the behavior of the AI model.
-
-### Debugging Modes
-- **Reason**: Debugging modes help users understand how the tool works and troubleshoot issues. They provide detailed information about the input, output, and internal state of the tool.
-- **Implementation**: The tool supports different debug levels, which can be specified using the `-d` or `--debug-level` option. Higher debug levels provide more detailed output.
+### Control File
+- **Reason**: A control file allows users to save and reuse sets of parameters that have been proven to work well for specific tasks.
+- **Implementation**: Users can create a control file using the `--create-controlfile` option. The control file is a JSON file that contains the input files, output file, requirements, model, force flag, debug level, and temperature.
 
 ## Similar Projects
 -------------------
@@ -52,26 +47,6 @@ There are several similar projects available, including:
 * **TabNine**: A code completion tool that uses AI to predict and complete code. TabNine supports multiple programming languages and integrates with various code editors.
 
 **Autocoder** differs from these projects in its focus on command-line interaction and support for multiple AI models. It is designed to be a standalone tool that can be used for generating code from a set of input files and requirements, rather than an editor plugin.
-
-## API Key Storage
-------------------
-
-It is recommended to store API keys as environment variables, as this is a more secure approach. However, Autocoder also supports storing API keys in a text file as a fallback. Please note that storing API keys in a text file is widely considered insecure and should be avoided whenever possible.
-
-## Hyperbolic API Key
----------------------
-
-As of December 2024, a key from Hyperbolic.xyz is free and comes with $10 in free credits. This amount of credits would take literal weeks to exhaust, even when running the program constantly.
-
-## OpenAI's Moat
-----------------
-
-It's worth noting that OpenAI's moat, if it ever existed, is gone. The availability of alternative AI models and providers has leveled the playing field, and Autocoder takes advantage of this by supporting multiple models.
-
-## Continuation Mechanism
-------------------------
-
-Incomplete chunks from the AI provider have been addressed through a continuation mechanism and system prompt. However, when using models with small max token limits, continuation messages may be present in the final output. As always, a human should review the results with `diff -u` before discarding the input files. The smallest max token API call is 8192 tokens, which translates to a source code file of about 32KB. Models with larger max token parameters should scale accordingly.
 
 ## Author and Contributions
 ---------------------------
@@ -86,6 +61,9 @@ The following models are currently supported by Autocoder. The costs, context le
 | Model Name                      | Input Cost (per million tokens) | Output Cost (per million tokens) | Context Length | Max Tokens | Provider   |
 |---------------------------------|---------------------------------|----------------------------------|----------------|------------|------------|
 | gpt-4o-mini                     | 0.15                            | 0.6                              | 128000         | 16384      | OpenAI     |
+| gpt-4o                          | 2.50                            | 10.0                             | 128000         | 16384      | OpenAI     |
+| gpt-4o-2024-05-13               | 5.00                            | 15.0                             | 128000         | 16384      | OpenAI     |
+| o1-preview                      | 15.00                           | 60.0                             | 128000         | 16384      | OpenAI     |
 | meta-llama/Llama-3.3-70B-Instruct | 0.4                             | 0.4                              | 131072         | 65535      | Hyperbolic |
 | Qwen/Qwen2.5-Coder-32B-Instruct   | 0.2                             | 0.2                              | 131072         | 8192       | Hyperbolic |
 | Qwen/QwQ-32B-Preview            | 0.2                             | 0.2                              | 32768          | 16384      | Hyperbolic |
@@ -141,6 +119,8 @@ Autocoder includes several options to customize its behavior. You can specify mu
 - `-m`, `--model`: Specify the model to use. The default model is `Qwen/Qwen2.5-Coder-32B-Instruct`.
 - `-l`, `--list-models`: List available models and their costs.
 - `-d`, `--debug-level`: Set the debug level (1=info, 2=debug, 3=dump all JSON objects).
+- `-t`, `--temperature`: Set the temperature for the model.
+- `--create-controlfile`: Create a control file with the specified parameters in JSON format.
 
 ## Potential Future Development Options
 --------------------------------------
@@ -157,3 +137,5 @@ Autocoder includes several options to customize its behavior. You can specify mu
 ----------
 
 Autocoder is a powerful tool for generating code using AI models. Its flexibility, support for multiple models, and user-friendly interface make it an attractive choice for developers. With the availability of free API keys and credits, there's never been a better time to explore the capabilities of AI-powered code generation. Whether you're a developer looking to speed up your workflow or an AI enthusiast interested in code generation, Autocoder has something to offer.
+
+*James did nothing but yell at me; this entire project was written by Qwen2.5-Coder-32B-Instruct*
