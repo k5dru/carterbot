@@ -128,11 +128,11 @@ def parse_command_line():
     # Check if all required arguments are present
     if not input_files or not outfilename or not requirements:
         if not input_files:
-            print("Error: Please specify one or more input files.")
+            print("Error: Please specify -i for one or more input files.")
         if not outfilename:
-            print("Error: Please specify the output file.")
+            print("Error: Please specify -o for the output file.")
         if not requirements:
-            print("Error: Please specify the requirements.")
+            print("Error: Please specify -r for the requirements.")
         print("Use -h for detailed help.")
         sys.exit(1)
 
