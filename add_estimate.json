@@ -1,0 +1,11 @@
+{
+    "input_files": [
+        "autocoder.py"
+    ],
+    "output_file": "autocoder.new.py",
+    "requirements": "Implement a control parameter that allows the user to estimate costs. Assume the output tokens are the same as the total input tokens, print an estimate cost based on the selected models input and output token costs, and exit before calling the inference API. Add the parameter to the help screen. Please pass the entire program as your answer.",
+    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "force": false,
+    "debug_level": 1,
+    "temperature": 0.7
+}

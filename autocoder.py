@@ -22,6 +22,7 @@ models = {
     "meta-llama/Llama-3.3-70B-Instruct":     {"input_cost": 0.4,   "output_cost": 0.4,  "context_length": 131072, "max_tokens": 65535, "provider": "hyperbolic"},
     "Qwen/Qwen2.5-Coder-32B-Instruct":       {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 131072, "max_tokens": 8192,  "provider": "hyperbolic"},
     "Qwen/QwQ-32B-Preview":                  {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
+    "meta-llama/Meta-Llama-3.1-8B-Instruct": {"input_cost": 0.1,   "output_cost": 0.1,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
 }
 
 # Reorder models from most expensive to least expensive
@@ -76,6 +77,7 @@ def parse_command_line():
     parser.add_argument("-t", "--temperature", dest="temperature", type=float, default=0.7, help="Set the temperature for the model.")
     parser.add_argument("--system-prompt", dest="system_prompt", help="Specify the system prompt as a string.")
     parser.add_argument("--create-controlfile", dest="new_controlfile", help="Create a control file with the specified parameters in JSON format.")
+    parser.add_argument("--estimate-cost", action="store_true", help="Estimate the cost based on the model's token costs and exit.")
 
     args = parser.parse_args()
 
@@ -93,6 +95,7 @@ def parse_command_line():
             "debug_level": args.debug_level,
             "temperature": args.temperature,
             "system_prompt": args.system_prompt if args.system_prompt else default_system_content,
+            "estimate_cost": args.estimate_cost,
         }
         with open(args.new_controlfile, 'w') as ctl_file:
             json.dump(config, ctl_file, indent=4)
@@ -110,6 +113,7 @@ def parse_command_line():
             debug_level = config.get("debug_level", 1) if not args.debug_level else args.debug_level
             temperature = config.get("temperature", 0.7) if not args.temperature else args.temperature
             system_prompt = config.get("system_prompt", default_system_content) if not args.system_prompt else args.system_prompt
+            estimate_cost = config.get("estimate_cost", False) if not args.estimate_cost else args.estimate_cost
     else:
         input_files = args.input_files
         outfilename = args.output_file
@@ -119,20 +123,32 @@ def parse_command_line():
         debug_level = args.debug_level
         temperature = args.temperature
         system_prompt = args.system_prompt if args.system_prompt else default_system_content
+        estimate_cost = args.estimate_cost
 
+    # Check if all required arguments are present
     if not input_files or not outfilename or not requirements:
-        parser.print_help()
+        if not input_files:
+            print("Error: Please specify one or more input files.")
+        if not outfilename:
+            print("Error: Please specify the output file.")
+        if not requirements:
+            print("Error: Please specify the requirements.")
+        print("Use -h for detailed help.")
         sys.exit(1)
-    else:
-        if debug_level > 2:
-            print("input_files:", input_files)
 
+    # Check if all input files exist
+    for infilename in input_files:
+        if not os.path.exists(infilename):
+            print(f"Error: Input file '{infilename}' not found.")
+            sys.exit(1)
+
+    # Check if the model is valid
     if model not in [model for model, _ in ordered_models]:
         print(f"Model {model} not found. Please choose from the available models.")
         parser.print_help()
         sys.exit(1)
 
-    return input_files, outfilename, requirements, model, force, debug_level, temperature, system_prompt
+    return input_files, outfilename, requirements, model, force, debug_level, temperature, system_prompt, estimate_cost
 
 # Updated language map to include more common Unix text file types
 language_map = {
@@ -180,7 +196,7 @@ language_map = {
 }
 
 class AICoder:
-    def __init__(self, input_files, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level, temperature, system_prompt):
+    def __init__(self, input_files, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level, temperature, system_prompt, estimate_cost):
         self.input_files = input_files
         self.outfilename = outfilename
         self.requirements = requirements
@@ -193,6 +209,7 @@ class AICoder:
         self.debug_level = debug_level
         self.temperature = temperature
         self.system_content = system_prompt
+        self.estimate_cost = estimate_cost
         self.programs = self.read_programs()
         self.api_key = self.read_api_key()
         self.language = self.determine_language()
@@ -211,9 +228,13 @@ class AICoder:
     def read_programs(self):
         programs = {}
         for infilename in self.input_files:
-            with open(infilename, 'r') as file:
-                programs[infilename] = file.read()
-            self.debug(2, f"Read file {infilename} with content:\n{programs[infilename]}\n")
+            try:
+                with open(infilename, 'r') as file:
+                    programs[infilename] = file.read()
+                self.debug(2, f"Read file {infilename} with content:\n{programs[infilename]}\n")
+            except Exception as e:
+                self.error(f"Error reading file {infilename}: {str(e)}")
+                sys.exit(1)
         return programs
 
     def read_api_key(self):
@@ -258,6 +279,18 @@ class AICoder:
             # Rule of thumb: character count is 4.0 times the token count
             return len(text) / 4.0
 
+    def estimate_costs(self):
+        total_content = self.system_content + self.user_content
+        estimated_tokens = self.estimate_token_count(total_content)
+        input_cost = (estimated_tokens / 1_000_000) * self.input_cost_per_million
+        output_cost = (estimated_tokens / 1_000_000) * self.output_cost_per_million
+        total_cost = input_cost + output_cost
+
+        self.debug(1, f"Estimated tokens: {estimated_tokens:.1f}")
+        self.debug(1, f"Estimated input cost: ${input_cost:.6f}")
+        self.debug(1, f"Estimated output cost: ${output_cost:.6f}")
+        self.debug(1, f"Total estimated cost: ${total_cost:.6f}")
+
     def generate_response(self, prompt):
         response_chunks = []
         prompt_tokens = 0
@@ -275,13 +308,9 @@ class AICoder:
         # Estimate token count for the prompt and system content
         estimated_prompt_tokens = self.estimate_token_count(prompt + self.system_content)
         actual_percentage = (estimated_prompt_tokens / self.context_length) * 100.0
-        self.debug(1, f"Estimated prompt tokens: {estimated_prompt_tokens:.1f} ({actual_percentage:.1f}% of safe limit)")
-        if actual_percentage > 40.0:
-            self.warn(f"The estimated number of input tokens ({estimated_prompt_tokens:.0f}) approaches {actual_percentage:.1f}% of the model's context length ({self.context_length}).")
-        if actual_percentage > 35.0:
-            self.warn(f"Using over 35% of the context may result in very poor results. Your current usage is {actual_percentage:.1f}%.")
+        self.debug(1, f"Estimated prompt tokens: {estimated_prompt_tokens:.1f} ({actual_percentage:.1f}% of model context)")
         if actual_percentage >= 48.0:
-            self.error(f"The estimated number of input tokens ({estimated_prompt_tokens:.0f}) is {actual_percentage:.1f}% of the model's context length ({self.context_length}). This exceeds the safe limit and may result in incomplete or poor quality responses.")
+            self.error(f"This exceeds the safe limit (48%) and will result in incomplete or poor quality responses. Shorten the input or use a larger model.")
             sys.exit(1)
 
         chat_completion = self.client.chat.completions.create(
@@ -329,6 +358,10 @@ class AICoder:
         return response_chunks, prompt_tokens, completion_tokens, finish_reason
 
     def run(self):
+        if self.estimate_cost:
+            self.estimate_costs()
+            sys.exit(0)
+
         # Capture the start time
         start_time = time.time()
         start_timestring = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -412,8 +445,8 @@ class AICoder:
 
 # Usage
 if __name__ == "__main__":
-    input_files, outfilename, requirements, model, force, debug_level, temperature, system_prompt = parse_command_line()
+    input_files, outfilename, requirements, model, force, debug_level, temperature, system_prompt, estimate_cost = parse_command_line()
     model_info = models[model]
 
-    autocoder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level, temperature, system_prompt)
+    autocoder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level, temperature, system_prompt, estimate_cost)
     autocoder.run()
