@@ -23,6 +23,8 @@ models = {
     "Qwen/Qwen2.5-Coder-32B-Instruct":       {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 131072, "max_tokens": 8192,  "provider": "hyperbolic"},
     "Qwen/QwQ-32B-Preview":                  {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
     "meta-llama/Meta-Llama-3.1-8B-Instruct": {"input_cost": 0.1,   "output_cost": 0.1,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
+    "deepseek-ai/DeepSeek-V3":               {"input_cost": 0.1,   "output_cost": 0.1,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
+    "local":                                 {"input_cost": 0.0,   "output_cost": 0.0,  "context_length": 32768, "max_tokens": 16384, "provider": "local"},
 }
 
 # Reorder models from most expensive to least expensive
@@ -77,6 +79,7 @@ def parse_command_line():
     parser.add_argument("-t", "--temperature", dest="temperature", type=float, default=0.7, help="Set the temperature for the model.")
     parser.add_argument("--system-prompt", dest="system_prompt", help="Specify the system prompt as a string.")
     parser.add_argument("--create-controlfile", dest="new_controlfile", help="Create a control file with the specified parameters in JSON format.")
+    parser.add_argument("--endpoint", dest="endpoint", help="Specify the endpoint URL for the local provider.")
     parser.add_argument("--estimate-cost", action="store_true", help="Estimate the cost based on the model's token costs and exit.")
 
     args = parser.parse_args()
@@ -95,6 +98,7 @@ def parse_command_line():
             "debug_level": args.debug_level,
             "temperature": args.temperature,
             "system_prompt": args.system_prompt if args.system_prompt else default_system_content,
+            "endpoint": args.endpoint,
             "estimate_cost": args.estimate_cost,
         }
         with open(args.new_controlfile, 'w') as ctl_file:
@@ -113,6 +117,7 @@ def parse_command_line():
             debug_level = config.get("debug_level", 1) if not args.debug_level else args.debug_level
             temperature = config.get("temperature", 0.7) if not args.temperature else args.temperature
             system_prompt = config.get("system_prompt", default_system_content) if not args.system_prompt else args.system_prompt
+            endpoint = config.get("endpoint", None) if not args.endpoint else args.endpoint
             estimate_cost = config.get("estimate_cost", False) if not args.estimate_cost else args.estimate_cost
     else:
         input_files = args.input_files
@@ -123,6 +128,7 @@ def parse_command_line():
         debug_level = args.debug_level
         temperature = args.temperature
         system_prompt = args.system_prompt if args.system_prompt else default_system_content
+        endpoint = args.endpoint
         estimate_cost = args.estimate_cost
 
     # Check if all required arguments are present
@@ -148,7 +154,13 @@ def parse_command_line():
         parser.print_help()
         sys.exit(1)
 
-    return input_files, outfilename, requirements, model, force, debug_level, temperature, system_prompt, estimate_cost
+    # Check if an endpoint URL is provided for local providers
+    if model == 'local' and not endpoint:
+        print("Error: Endpoint URL must be specified when using the local provider.")
+        parser.print_help()
+        sys.exit(1)
+
+    return input_files, outfilename, requirements, model, force, debug_level, temperature, system_prompt, endpoint, estimate_cost
 
 # Updated language map to include more common Unix text file types
 language_map = {
@@ -196,7 +208,7 @@ language_map = {
 }
 
 class AICoder:
-    def __init__(self, input_files, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level, temperature, system_prompt, estimate_cost):
+    def __init__(self, input_files, outfilename, requirements, model, input_cost_per_million, output_cost_per_million, max_tokens, context_length, force, debug_level, temperature, system_prompt, endpoint, estimate_cost):
         self.input_files = input_files
         self.outfilename = outfilename
         self.requirements = requirements
@@ -209,6 +221,7 @@ class AICoder:
         self.debug_level = debug_level
         self.temperature = temperature
         self.system_content = system_prompt
+        self.endpoint = endpoint
         self.estimate_cost = estimate_cost
         self.programs = self.read_programs()
         self.api_key = self.read_api_key()
@@ -222,6 +235,8 @@ class AICoder:
             self.client = openai.OpenAI(api_key=self.api_key, base_url="https://api.openai.com/v1")
         elif models[model]['provider'] == 'hyperbolic':
             self.client = openai.OpenAI(api_key=self.api_key, base_url="https://api.hyperbolic.xyz/v1")
+        elif models[model]['provider'] == 'local':
+            self.client = openai.OpenAI(api_key=self.api_key, base_url=endpoint)
 
         self.continuation_message = "<!--generation interrupted, continuing-->"
 
@@ -242,6 +257,8 @@ class AICoder:
             api_key = os.environ.get("OPENAI_API_KEY")
         elif models[self.model]['provider'] == 'hyperbolic':
             api_key = os.environ.get("HYPERBOLIC_API_KEY")
+        elif models[self.model]['provider'] == 'local':
+            api_key = os.environ.get("LOCAL_API_KEY")
 
         if api_key:
             return api_key.strip()
@@ -314,7 +331,7 @@ class AICoder:
             sys.exit(1)
 
         chat_completion = self.client.chat.completions.create(
-            model=self.model,
+            model=self.model if self.model != 'local' else None,
             messages=messages,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
@@ -445,8 +462,8 @@ class AICoder:
 
 # Usage
 if __name__ == "__main__":
-    input_files, outfilename, requirements, model, force, debug_level, temperature, system_prompt, estimate_cost = parse_command_line()
+    input_files, outfilename, requirements, model, force, debug_level, temperature, system_prompt, endpoint, estimate_cost = parse_command_line()
     model_info = models[model]
 
-    autocoder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level, temperature, system_prompt, estimate_cost)
+    autocoder = AICoder(input_files, outfilename, requirements, model, model_info['input_cost'], model_info['output_cost'], model_info['max_tokens'], model_info['context_length'], force, debug_level, temperature, system_prompt, endpoint, estimate_cost)
     autocoder.run()
