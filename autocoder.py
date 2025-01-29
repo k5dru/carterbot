@@ -2,6 +2,7 @@
 import sys
 import os
 import json
+import yaml  # Import yaml for YAML handling
 import openai
 import argparse
 from datetime import datetime
@@ -23,7 +24,7 @@ models = {
     "Qwen/Qwen2.5-Coder-32B-Instruct":       {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 131072, "max_tokens": 8192,  "provider": "hyperbolic"},
     "Qwen/QwQ-32B-Preview":                  {"input_cost": 0.2,   "output_cost": 0.2,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
     "meta-llama/Meta-Llama-3.1-8B-Instruct": {"input_cost": 0.1,   "output_cost": 0.1,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
-    "deepseek-ai/DeepSeek-V3":               {"input_cost": 0.1,   "output_cost": 0.1,  "context_length": 32768,  "max_tokens": 16384, "provider": "hyperbolic"},
+    "deepseek-ai/DeepSeek-V3":               {"input_cost": 0.1,   "output_cost": 0.1,  "context_length": 131072,  "max_tokens": 8192, "provider": "hyperbolic"},
     "local":                                 {"input_cost": 0.0,   "output_cost": 0.0,  "context_length": 32768, "max_tokens": 16384, "provider": "local"},
 }
 
@@ -68,7 +69,7 @@ def list_models():
 
 def parse_command_line():
     parser = argparse.ArgumentParser(description=f"AI Coder Tool (Version: {VERSION}) by {AUTHOR}")
-    parser.add_argument("-c", "--control-file", dest="control_file", help="Specify a control file in JSON format.")
+    parser.add_argument("-c", "--control-file", dest="control_file", help="Specify a control file in JSON or YAML format.")
     parser.add_argument("-i", "--input-files", dest="input_files", nargs='+', help="Specify one or more input files. You can use this option multiple times or provide multiple files separated by spaces.")
     parser.add_argument("-o", "--output-file", dest="output_file", help="Specify the output file.")
     parser.add_argument("-r", "--requirements", dest="requirements", help="Specify the requirements as a string.")
@@ -78,7 +79,7 @@ def parse_command_line():
     parser.add_argument("-d", "--debug-level", dest="debug_level", type=int, default=1, help="Set the debug level (0=silent, 1=info, 2=debug, 3=dump all JSON objects).")
     parser.add_argument("-t", "--temperature", dest="temperature", type=float, default=0.7, help="Set the temperature for the model.")
     parser.add_argument("--system-prompt", dest="system_prompt", help="Specify the system prompt as a string.")
-    parser.add_argument("--create-controlfile", dest="new_controlfile", help="Create a control file with the specified parameters in JSON format.")
+    parser.add_argument("--create-controlfile", dest="new_controlfile", help="Create a control file with the specified parameters in JSON or YAML format.")
     parser.add_argument("--endpoint", dest="endpoint", help="Specify the endpoint URL for the local provider.")
     parser.add_argument("--estimate-cost", action="store_true", help="Estimate the cost based on the model's token costs and exit.")
 
@@ -101,24 +102,32 @@ def parse_command_line():
             "endpoint": args.endpoint,
             "estimate_cost": args.estimate_cost,
         }
-        with open(args.new_controlfile, 'w') as ctl_file:
-            json.dump(config, ctl_file, indent=4)
+        if args.new_controlfile.endswith('.yaml') or args.new_controlfile.endswith('.yml'):
+            with open(args.new_controlfile, 'w') as ctl_file:
+                yaml.dump(config, ctl_file)
+        else:
+            with open(args.new_controlfile, 'w') as ctl_file:
+                json.dump(config, ctl_file, indent=4)
         print(f"Control file created: {args.new_controlfile}")
         sys.exit(0)
 
     if args.control_file:
-        with open(args.control_file, 'r') as ctl_file:
-            config = json.load(ctl_file, strict=False)
-            input_files = config.get("input_files", []) if not args.input_files else args.input_files
-            outfilename = config.get("output_file", "") if not args.output_file else args.output_file
-            requirements = config.get("requirements", "") if not args.requirements else args.requirements
-            model = config.get("model", default_model) if not args.model else args.model
-            force = config.get("force", False) if not args.force else args.force
-            debug_level = config.get("debug_level", 1) if not args.debug_level else args.debug_level
-            temperature = config.get("temperature", 0.7) if not args.temperature else args.temperature
-            system_prompt = config.get("system_prompt", default_system_content) if not args.system_prompt else args.system_prompt
-            endpoint = config.get("endpoint", None) if not args.endpoint else args.endpoint
-            estimate_cost = config.get("estimate_cost", False) if not args.estimate_cost else args.estimate_cost
+        if args.control_file.endswith('.yaml') or args.control_file.endswith('.yml'):
+            with open(args.control_file, 'r') as ctl_file:
+                config = yaml.safe_load(ctl_file)
+        else:
+            with open(args.control_file, 'r') as ctl_file:
+                config = json.load(ctl_file, strict=False)
+        input_files = config.get("input_files", []) if not args.input_files else args.input_files
+        outfilename = config.get("output_file", "") if not args.output_file else args.output_file
+        requirements = config.get("requirements", "") if not args.requirements else args.requirements
+        model = config.get("model", default_model) if not args.model else args.model
+        force = config.get("force", False) if not args.force else args.force
+        debug_level = config.get("debug_level", 1) if not args.debug_level else args.debug_level
+        temperature = config.get("temperature", 0.7) if not args.temperature else args.temperature
+        system_prompt = config.get("system_prompt", default_system_content) if not args.system_prompt else args.system_prompt
+        endpoint = config.get("endpoint", None) if not args.endpoint else args.endpoint
+        estimate_cost = config.get("estimate_cost", False) if not args.estimate_cost else args.estimate_cost
     else:
         input_files = args.input_files
         outfilename = args.output_file
