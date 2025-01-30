@@ -1,0 +1,41 @@
+# created as distillation of RSS feed; cleaner implemenation pending 
+
+1. **Trump Ends Extension of Temporary Protected Status for Venezuelan Migrants**
+   - **Description**: President Trump signed the Laken Riley Act, which targets more immigrants for deportation by ending the extension of temporary protected status (TPS) for hundreds of thousands of Venezuelans.
+   - **Impact**: This move could lead to the deportation of a significant number of immigrants, affecting families and communities.
+
+2. **Fed Holds Interest Rates Steady as Inflation Remains Above 2%**
+   - **Description**: The Federal Reserve opted to leave its benchmark interest rate unchanged during its first policy meeting since President Trump's inauguration, citing inflation that remains above 2%.
+   - **Impact**: The decision may influence various sectors including housing, borrowing, and investment, as the Fed aims to balance economic growth and inflation.
+
+3. **Lee Zeldin Confirmed as Trump's EPA Administrator**
+   - **Description**: The Republican-controlled Senate confirmed Lee Zeldin to lead the Environmental Protection Agency (EPA), a key role to help President Trump fulfill his pledge to roll back major environmental regulations.
+   - **Impact**: This confirmation signals potential changes in environmental policies, which could affect climate change initiatives, pollution controls, and public health measures.
+
+4. **Bob Menendez Sentenced to 11 Years in Bribery, Corruption Case**
+   - **Description**: Former New Jersey Sen. Bob Menendez has been sentenced to 11 years in federal prison after being convicted of 16 counts of bribery, extortion, conspiracy, and obstruction of justice.
+   - **Impact**: Menendez's conviction and sentence highlight the ongoing fight against corruption in high-ranking political offices and could influence future political appointments.
+
+5. **RFK Jr. Faces Senate Confirmation Hearings Over Vaccine Stance and Past Statements**
+   - **Description**: Robert F. Kennedy Jr., Trump's pick to be director of the Department of Health and Human Services, faces confirmation hearings. Senators are pressing him about his past statements on vaccines and likening the CDC to a "Nazi death camp."
+   - **Impact**: RFK Jr.'s confirmation hearings could reveal his stance on critical health issues, including vaccines and long COVID research, potentially shaping future health policies.
+
+6. **Hamas Set to Free 8 More Hostages, Including 80-Year-Old Man**
+   - **Description**: Hamas officials say they are set to release 8 more hostages, including an 80-year-old man, as part of the ongoing ceasefire with Israel.
+   - **Impact**: This hostage release could indicate progress in the fragile ceasefire and may influence future negotiations between Israel and Hamas.
+
+7. **Wildfire Erupts in North Carolina Town Recovering from Hurricane Helene**
+   - **Description**: A wildfire broke out in Old Fort, North Carolina, which was one of the hardest-hit towns by Hurricane Helene when it made landfall in September.
+   - **Impact**: The wildfire poses immediate risks to residents and highlights the long-term impacts of natural disasters on communities.
+
+8. **New York Becomes First State to Close Schools for Lunar New Year**
+   - **Description**: New York students will have the day off for the Lunar New Year, marking the first time since a new state law was signed in 2023.
+   - **Impact**: This decision reflects a growing recognition of the cultural significance of Lunar New Year in the United States and could influence other states.
+
+9. **Trump Signs Laken Riley Act, First Bill of His New Term**
+   - **Description**: The Laken Riley Act aims to expand the federal government's mandate to detain immigrants who are in the country illegally, signed by President Trump as his first bill.
+   - **Impact**: The act could lead to stricter immigration enforcement and may affect legal and humanitarian concerns related to border control and migrant rights.
+
+10. **Trump Makes Moves to Maximize His Power in First Days of Presidency**
+    - **Description**: Trump's efforts to freeze trillions of dollars in federal grants and other actions show his intention to expand executive power in his first days as president.
+    - **Impact**: These actions could lead to legal challenges and debates about the separation of powers, and set the tone for his presidency.
