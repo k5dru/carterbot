@@ -253,9 +253,18 @@ class AICoder:
         programs = {}
         for infilename in self.input_files:
             try:
-                with open(infilename, 'r') as file:
+                with open(infilename, 'r', encoding='utf-8') as file:
                     programs[infilename] = file.read()
                 self.debug(2, f"Read file {infilename} with content:\n{programs[infilename]}\n")
+            except UnicodeDecodeError:
+                try:
+                    with open(infilename, 'r', encoding='latin-1') as file:
+                        programs[infilename] = file.read()
+                    self.debug(2, f"Read file {infilename} with content (using latin-1 encoding):\n{programs[infilename]}\n")
+                    self.warn(f"Warning: File {infilename} was read using 'latin-1' encoding due to 'utf-8' decoding error.")
+                except Exception as e:
+                    self.error(f"Error reading file {infilename}: {str(e)}")
+                    sys.exit(1)
             except Exception as e:
                 self.error(f"Error reading file {infilename}: {str(e)}")
                 sys.exit(1)
