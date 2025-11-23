@@ -1,6 +1,6 @@
 #
 # optional: import our Python environment. 
-. ~/2025/bin/activate 
+# . ~/2025/bin/activate 
 
 # kill stragglers. This is a bit, anti-surgical. 
 killall python3 
