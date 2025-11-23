@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+import os
 
 class BotDB:
     def __init__(self, db_name='irc_bot_log.db'):
@@ -56,10 +57,34 @@ class BotDB:
         ''')
         self._execute('CREATE INDEX IF NOT EXISTS idx_response_time ON request_response (response_time DESC)')
 
+        # New table for memories
+        self._execute('''
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
+                memory TEXT NOT NULL
+            )
+        ''')
+        self._execute('CREATE INDEX IF NOT EXISTS idx_memory_timestamp ON memories (timestamp DESC)')
+
+        # New table for metacognition scratchpad
+        self._execute('''
+            CREATE TABLE IF NOT EXISTS metacognition (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
+                content TEXT NOT NULL
+            )
+        ''')
+
+    
+
         # Insert default settings
         default_settings = {
+            'safety': 'True',
             'temperature': '0.7',
+            'personality': 'system_message',
             'max_tokens': '50',
+            'max_lines': '10',
             'antiflood_delay': '1.0',
             'max_line_length': '400',
             'cost_per_mtok_large': '0.20',
@@ -81,8 +106,16 @@ class BotDB:
         print("Database created with default values.")
 
     def load_system_message(self):
+        personality = self.load_setting('personality')
+        personality_file = f"{personality}.txt"
+        personality_text = "You are a smart IRC bot.\n"
+        if os.path.exists(personality_file):
+            with open(personality_file, 'r') as file:
+                personality_text=file.read()
         with open('system_message.txt', 'r') as file:
-            return file.read()
+            system_message=file.read()
+
+        return personality_text + system_message
 
     def update_system_message(self, new_message):
         with open('system_message.txt', 'w') as file:
@@ -115,11 +148,34 @@ class BotDB:
         c.close()
         return usage
 
-    def log_message(self, channel, nick, message, direction):
-        self._execute('''
-            INSERT INTO messages (channel, nick, message, direction)
-            VALUES (?, ?, ?, ?)
-        ''', (channel, nick, message, direction))
+    def get_metacognition(self):
+        c = self.conn.cursor()
+        c.execute('SELECT content FROM metacognition ORDER BY id DESC LIMIT 1')
+        result = c.fetchone()
+        c.close()
+        return result[0] if result else ""
+
+    def update_metacognition(self, content):
+        if len(content) > 1024:
+            content = content[:1024]
+        self._execute('INSERT INTO metacognition (content) VALUES (?)', (content,))
+
+    def clear_metacognition(self):
+        self._execute('DELETE FROM metacognition')
+        self._execute('INSERT INTO metacognition (content) VALUES ("")')
+        return True
+
+    def log_message(self, channel, nick, message, direction, timestamp=None):
+        if timestamp:
+            self._execute('''
+                INSERT INTO messages (channel, nick, message, direction, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (channel, nick, message, direction, timestamp))
+        else: 
+            self._execute('''
+                INSERT INTO messages (channel, nick, message, direction)
+                VALUES (?, ?, ?, ?)
+            ''', (channel, nick, message, direction))
 
     def log_token_usage(self, prompt_tokens, completion_tokens, cost, model):
         self._execute('''
@@ -127,16 +183,25 @@ class BotDB:
             VALUES (?, ?, ?, ?)
         ''', (prompt_tokens, completion_tokens, cost, model))
 
-    def get_recent_channel_messages(self, channel, since_timestamp):
+    def get_recent_channel_messages(self, channel, since_timestamp, through_timestamp=None):
         c = self.conn.cursor()
-        c.execute('SELECT nick, message FROM messages WHERE channel = ? AND timestamp >= ? ORDER BY timestamp', (channel, since_timestamp))
+        params = (channel, since_timestamp)
+        query = 'SELECT nick, message, timestamp FROM messages WHERE channel = ? AND timestamp >= ?'
+        if through_timestamp:
+            query += ' AND timestamp <= ?'
+            params += (through_timestamp,)
+        query += ' ORDER BY timestamp'
+        c.execute(query, params)
         messages = c.fetchall()
         c.close()
         return messages
 
-    def get_timestamp_of_nth_message(self, channel, n):
+    def get_timestamp_of_nth_message(self, channel, n, through_timestamp=None):
         c = self.conn.cursor()
-        c.execute('SELECT timestamp FROM messages WHERE channel = ? ORDER BY timestamp DESC LIMIT ?', (channel, n))
+        if through_timestamp: 
+            c.execute('SELECT timestamp FROM messages WHERE channel = ? and timestamp <= ? ORDER BY timestamp DESC LIMIT ?', (channel, through_timestamp, n))
+        else:
+            c.execute('SELECT timestamp FROM messages WHERE channel = ? ORDER BY timestamp DESC LIMIT ?', (channel, n))
         timestamps = c.fetchall()
         c.close()
         if timestamps and len(timestamps) >= n:
@@ -144,8 +209,11 @@ class BotDB:
         else:
             return '1970-01-01 00:00:00.000000'  # Return a very old timestamp if there are less than n messages
 
-    def request_response(self, channel):
-        self._execute('INSERT INTO request_response (channel) VALUES (?)', (channel,))
+    def request_response(self, channel, request_time=None):
+        if request_time:
+            self._execute('INSERT INTO request_response (channel, request_time) VALUES (?, ?)', (channel, request_time))
+        else:
+            self._execute('INSERT INTO request_response (channel) VALUES (?)', (channel,))
 
     def get_pending_requests(self, channel):
         c = self.conn.cursor()
@@ -210,7 +278,32 @@ class BotDB:
         c.close()
         return count
 
+    def forget_channel_messages(self, channel, nickname, direction='%'):
+        self._execute('''
+            DELETE FROM messages
+            WHERE upper(channel) = ? AND (upper(nick) = ? OR upper(message) LIKE ?) AND direction LIKE ?
+        ''', (channel.upper(), nickname.upper(), f'%{nickname.upper()}%', direction))
+
+    # New methods for memories
+    def save_memory(self, memory):
+        self._execute('INSERT INTO memories (memory) VALUES (?)', (memory,))
+
+    def update_memory(self, id, memory):
+        self._execute('UPDATE memories set memory=? where id = ?', (memory,id,))
+
+    def delete_memory(self, id):
+        self._execute('DELETE FROM memories where id = ?', (id,))
+
+    def get_memories(self):
+        c = self.conn.cursor()
+        c.execute("select id, memory, ROUND((julianday('now') - julianday(timestamp)), 0) AS memory_age_days_ago from memories");
+        memories = c.fetchall()
+        c.close()
+        # return [memory[0] for memory in memories]
+        return memories
+
 # Check if the script is being run directly
 if __name__ == '__main__':
     db = BotDB()
     db.dbcreate()  # only ever create database on manual invocation
+

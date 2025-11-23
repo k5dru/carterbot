@@ -36,12 +36,16 @@ Implementation Details:
 
 import irc.bot
 import irc.strings
+from irc.client import Event
 import sqlite3
 from argparse import RawTextHelpFormatter
 from bot_db import BotDB
 import time
 import re
 import threading
+import requests
+import random
+import os
 
 # Initialize BotDB
 bot_db = BotDB()
@@ -53,6 +57,20 @@ def debug(message, level=1):
     if DEBUG_LEVEL >= level:
         print(message)
 
+def scrub_response(response, proscribed_terms):
+    if not response:
+        return response
+    # Convert text to lowercase for case insensitive search
+    text_lower = response.lower()
+    replacements = ["smurfed", "nerfed", "gonk"]
+    for term in proscribed_terms:
+        # Use word boundaries to ensure words are not flagged within other words
+        if re.search(rf'\b{re.escape(term.lower())}\b', text_lower):
+            response = re.sub(rf'\b{re.escape(term)}\b', random.choice(replacements), response, flags=re.IGNORECASE)
+    if response.startswith('!'): 
+        response = '¡' + response[1:] 
+    return response
+
 class DynamicHambotIRC(irc.bot.SingleServerIRCBot):
     def __init__(self, server, port, nickname, channel):
         irc.bot.SingleServerIRCBot.__init__(self, [(server, port)], nickname, nickname)
@@ -61,6 +79,7 @@ class DynamicHambotIRC(irc.bot.SingleServerIRCBot):
         self.refresh_settings()
         self.f_count = 0
         self.polling_thread = None  # Initialize without starting the thread
+        self.proscribed_terms = self.fetch_proscribed_terms()
 
     def refresh_settings(self):
         self.temperature = float(bot_db.load_setting('temperature') or 0.7)  # Load temperature from database
@@ -74,6 +93,36 @@ class DynamicHambotIRC(irc.bot.SingleServerIRCBot):
         self.messages_since_activation = int(bot_db.load_setting('messages_since_activation') or 999)
         self.superusers = bot_db.load_setting('superusers').split(',') if bot_db.load_setting('superusers') else []
         self.memory = int(bot_db.load_setting('memory') or 200)  # Implement memory as a control parameter
+        self.safety = bot_db.load_setting('safety') == 'True'  # Load safety setting from database
+        self.max_messages = int(bot_db.load_setting('max_messages') or 10)  # Load max messages setting from database
+
+
+    def fetch_proscribed_terms(self):
+        terms_file = "proscribed_terms.txt"
+        if os.path.exists(terms_file):
+            with open(terms_file, 'r', encoding='utf-8') as file:
+                terms = set(file.read().splitlines())
+        else:
+            urls = [
+                "https://raw.githubusercontent.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/refs/heads/master/en",
+                "https://raw.githubusercontent.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/refs/heads/master/es",
+                "https://raw.githubusercontent.com/dsojevic/profanity-list/refs/heads/main/en.txt"
+            ]
+            terms = set()
+            for url in urls:
+                try:
+                    response = requests.get(url)
+                    response.raise_for_status()
+                    terms.update(response.text.splitlines())
+                except requests.RequestException as e:
+                    debug(f"Error fetching proscribed terms from {url}: {e}")
+            # Add some custom terms
+            custom_terms = ["Lode Radio", "LodeRadio", "LodeRadiohour", "l0de", "l0deradio", "l0deradiohour", "gypsy", "kike", "wop"]
+            custom_terms += ["Libera.Chat", "OFTC", "Rizon", "DALnet", "IRCNet", "Rizon", "Snoonet"]
+            terms.update(term.lower() for term in custom_terms)
+            with open(terms_file, 'w', encoding='utf-8') as file:
+                file.write('\n'.join(terms))
+        return terms
 
     def on_welcome(self, c, e):
         c.join(self.channel)
@@ -90,24 +139,27 @@ class DynamicHambotIRC(irc.bot.SingleServerIRCBot):
         bot_db.log_message(self.channel, sender_nick, message, 'in')
 
         # Reset activation counter if bot's nickname is mentioned
-        if message.lower().startswith(self.nickname.lower()) and sender_nick != self.nickname:
+        if message.lower().startswith(self.nickname.lower()): # and sender_nick != self.nickname:
             if len(bot_db.get_pending_requests(self.channel)) < 2:
                 # Handle control commands
-                if message.startswith(f"{self.nickname} set"): 
-                    if sender_nick in self.superusers:
-                        self.handle_set_command(c, message)
-                    else:
-                        self.send_privmsg(c, self.channel, f"only {', '.join(self.superusers)} may set")
-                elif message.startswith(f"{self.nickname} show"):
-                    if sender_nick in self.superusers:
-                        self.handle_show_command(c, message)
-                    else:
-                        self.send_privmsg(c, self.channel, f"only {', '.join(self.superusers)} may show")
+                debug (f"message           is {message}")
+                lowercleanmessage=''.join(e for e in message if e == ' ' or e.isalnum()).lower()
+                debug (f"lowercleanmessage is {lowercleanmessage}")
+                if lowercleanmessage.startswith(f"{self.nickname} set") and sender_nick in self.superusers:
+                    self.handle_set_command(c, message)
+                elif lowercleanmessage.startswith(f"{self.nickname} show") and sender_nick in self.superusers:
+                    self.handle_show_command(c, message)
+                elif lowercleanmessage.startswith(f"{self.nickname} forget") and sender_nick in self.superusers:
+                    self.handle_forget_command(c, message)
+                elif lowercleanmessage.startswith(f"{self.nickname} memory") and sender_nick in self.superusers:
+                    self.handle_memory_command(c, message)
+                elif lowercleanmessage.startswith(f"{self.nickname} quit") and sender_nick in self.superusers:
+                    self.handle_quit_command(c, message)
                 else:
                     self.messages_since_activation = 0
                     bot_db.request_response(self.channel)  # Signal the back-end to generate a response
             else:
-                debug(f"Already two pending requests. Ignoring additional request from {sender_nick}.")
+                self.send_privmsg(c, self.channel, f"{sender_nick} too many requests rn - try later")
         else:
             if message.lower() == 'f':
                 self.f_count += 1
@@ -139,10 +191,15 @@ class DynamicHambotIRC(irc.bot.SingleServerIRCBot):
 
     def handle_set_command(self, c, message):
         try:
-            # Remove the bot's name and "set" from the message
-            command_str = message.split(f"{self.nickname} set ")[1].strip()
-            # Split the command into parts
-            parts = command_str.split()
+            cmd="set"
+            cmd_index = message.lower().find(cmd)
+            if cmd_index == -1:
+                self.send_privmsg(c, self.channel, "wut")
+                return
+            command_str = message[cmd_index + len(cmd):].strip()
+            # command_str = message.split(f"{self.nickname} set ")[1].strip()
+            # Split the command into parts, removing =, :, and the word "to"
+            parts = re.split(r'\s*[=:]\s*|\s+to\s+|\s+', command_str)
             if len(parts) < 2:
                 self.send_privmsg(c, self.channel, "Invalid set command. Usage: set <setting> <value>")
                 return
@@ -156,8 +213,12 @@ class DynamicHambotIRC(irc.bot.SingleServerIRCBot):
 
     def handle_show_command(self, c, message):
         try:
-            # Remove the bot's name and "show" from the message
-            command_str = message.split(f"{self.nickname} show ")[1].strip()
+            cmd="show"
+            cmd_index = message.lower().find(cmd)
+            if cmd_index == -1:
+                self.send_privmsg(c, self.channel, "wut")
+                return
+            command_str = message[cmd_index + len(cmd):].strip()
             if command_str.lower() == 'all':
                 all_settings = bot_db.load_all_settings()
                 response = ', '.join([f"{key}:{value}" for key, value in all_settings.items()])
@@ -172,18 +233,86 @@ class DynamicHambotIRC(irc.bot.SingleServerIRCBot):
         except Exception as e:
             self.send_privmsg(c, self.channel, f"Error processing command: {str(e)}")
 
+    def handle_forget_command(self, c, message):
+        # Remove the bot's name and "forget" from the message
+        # command_str = message.split(f"{self.nickname} forget")[1].strip()
+        # this could be valuable in the future if we want to forget just some things, not everything. like a regular expression.
+        self.send_multiline_response(c, "/me wakes up in a fresh, beautiful world")
+        bot_db.forget_channel_messages(self.channel, self.nickname)
+
+    def handle_memory_command(self, c, message):
+        try:
+            cmd="memory"
+            cmd_index = message.lower().find(cmd)
+            if cmd_index == -1:
+                self.send_privmsg(c, self.channel, "wut")
+                return
+            command_str = message[cmd_index + len(cmd):].strip()
+
+            if not command_str:
+                self.send_privmsg(c, self.channel, "Invalid memory command. Usage: memory [update ID] [delete ID] <fact or observation>")
+                return
+            
+            command_str_lower_split = command_str.lower().split()
+
+            if len(command_str_lower_split) > 1 and command_str_lower_split[0] == "delete":
+                bot_db.delete_memory(int(command_str_lower_split[1]))
+            elif len(command_str_lower_split) > 2 and command_str_lower_split[0] == "update":
+                bot_db.update_memory(int(command_str_lower_split[1]), " ".join(command_str.split()[2:])) 
+            else:
+                bot_db.save_memory(command_str)
+
+
+            self.send_privmsg(c, self.channel, f"Memory '{command_str}' processed.")
+        except Exception as e:
+            self.send_privmsg(c, self.channel, f"Error processing command: {str(e)}")
+
+    def handle_quit_command(self, c, message):
+        try:
+            cmd="quit"
+            cmd_index = message.lower().find(cmd)
+            if cmd_index == -1:
+                self.send_privmsg(c, self.channel, "wut")
+                return
+            command_str = message[cmd_index + len(cmd):].strip()
+            c.quit(command_str if command_str else "Quitting.")
+        except Exception as e:
+            self.send_privmsg(c, self.channel, f"Error processing command: {str(e)}")
+
+
     def send_privmsg(self, c, channel, message):
         if self.posting_enabled:
-            c.privmsg(channel, message)
-            # Log outgoing message
-            bot_db.log_message(channel, self.nickname, message, 'out')
-            # Reset activation counter on bot response
-            self.messages_since_activation = 0
-            debug(f"Sent message: {message}")
-            bot_db.mark_response_posted(channel)  # Mark the response as posted
+            if self.safety:
+                message = scrub_response(message, self.proscribed_terms)
+
+            if (len(message) == 0):
+                self.send_action(c, f"{self.nickname} has no response")
+            else: 
+                c.privmsg(channel, message)
+
+            # handle the situation of if it is me calling my own name to set some stuff
+            if message.startswith(f"{self.nickname} forget"):
+                self.handle_forget_command(c, message)
+            elif message.startswith(f"{self.nickname} set"):
+                self.handle_set_command(c, message)
+            elif message.startswith(f"{self.nickname} show"):
+                self.handle_show_command(c, message)
+            elif message.startswith(f"{self.nickname} memory"):
+                self.handle_memory_command(c, message)
+            elif message.startswith(f"{self.nickname} quit"):
+                self.handle_quit_command(c, message)
+            else: 
+                # Log outgoing message
+                bot_db.log_message(channel, self.nickname, message, 'out')
+                # Reset activation counter on bot response
+                self.messages_since_activation = 0
+                debug(f"Sent message: {message}")
+                bot_db.mark_response_posted(channel)  # Mark the response as posted
 
     def send_action(self, c, channel, action):
         if self.posting_enabled:
+            if self.safety:
+                action = scrub_response(action, self.proscribed_terms)
             c.action(channel, action)
             # Log outgoing action
             bot_db.log_message(channel, self.nickname, f"\u0001ACTION {action}\u0001", 'out')
@@ -216,11 +345,29 @@ class DynamicHambotIRC(irc.bot.SingleServerIRCBot):
             if line.startswith('/me'):
                 action_text = line[4:].strip()
                 self.send_action(c, self.channel, action_text)
+            elif line.startswith('/kick '):
+                action_text = line.split()
+                c.kick(self.channel, action_text[1], ' '.join(action_text[2:]))
+                self.send_action(c, self.channel, 'kicks ' + action_text[1] + ' ' + ' '.join(action_text[2:]))
             else:
                 # Scrub the response to avoid "^.*{self.nickname}: " pattern
                 scrubbed_line = re.sub(f'^{self.nickname}: ', '', line, flags=re.MULTILINE)
                 self.send_privmsg(c, self.channel, scrubbed_line)
             time.sleep(self.antiflood_delay)  # Apply anti-flood delay
+
+    def on_kick(self, c, e):
+        if e.arguments[0] == self.nickname:
+            debug(f"Bot was kicked from {self.channel} by {e.source.nick}")
+# not joined.           self.send_privmsg(c, self.channel, f"Bot was kicked from {self.channel} by {e.source.nick}. Quitting.")
+            c.quit(f"Bot was kicked from {self.channel} by {e.source.nick}")
+
+    def on_error(self, c, e):
+        error_message = e.arguments[0]
+        debug(f"Error received: {error_message}")
+        # Check for a ban error code or message
+        if 'Killed' in error_message or 'Banned' in error_message or '474' in error_message:
+# not joined.           self.send_privmsg(c, self.channel, f"Bot encountered an error: {error_message}. Quitting.")
+            c.quit(f"Bot encountered an error: {error_message}")
 
 if __name__ == "__main__":
     import argparse

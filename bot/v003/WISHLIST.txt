@@ -1,0 +1,14 @@
+Bugs: 
+* sometimes the LLM doesn't respond at all, and then the bot hangs - no further responses get posted to the channel.
+* I started with a small model to try to determine when it would be approproate to respond; that didn't work. It was way too confident it had something to contribute. So for development I made it such that a line starting with the bot's name triggered it. I'd like to go back to the LLM approach, but calling a full LLM on each post to IRC would be problematic. Maybe invoke our own local 2B model for this task? Maybe have it evaluate only if it has been active in the last 4 messages, and require a mention otherwise?
+* sometimes I get a sqlite error; I'm using a cursor that hasn't been opened. It would be nice to completely rethink asynchronous database operations such that this will never happen.
+* testing is nonexistent. The message architecture needs to be reworked so that the bot is not able to tell if the messages are coming from a live channel or a test framework. That way a conversation can be replayed, except for bot contributions, and the bot can formulate answers as if it were in the channel. This can facilitate model testing, prompt testing, all kinds of changes for improvement.
+* the bot should be more temporally aware. Chat log comments could have timestamps, or a timestamp every 10 minutes, or something to give the bot the idea that time has passed. If the channel is dead for 30 minutes and the last message wasn't from the bot, it could say something (though not directly to a user; don't want to ping them).
+* Asynchronous introspection and management of memories and reflections would be great. If something is going on in the channel that is worth remembering, then that could happen out-of-band, even if the bot is idle.
+* The chat log format with “User said:” is not great. It works, but maybe YAML or something easy to parse would be less confusing for the LLM. Sometimes it wants to prepend its messages with “chatbot said:”, which makes no sense to the channel.
+* The foreground/background python processes are, unsophisticated, to say the least. How about some threading?
+
+Design features: 
+* since this bot was written on slow LLMs with prompt caching, I make repeated activations of the bot use as near the same prompt as possible. That is why I get messages since a timestamp instead of the last N messages, so most of the prompt will be a cache hit. Of course after a while the entire conversation history has to be reset, and updating any memories causes a cache miss. This isn't a huge deal but we should minimize unique prompt costs if possible.
+* anti-flood: some users were really hammering this thing at first, which is why the delay window exists. It's not graceful but it spares the channel of flooding. 
+* Users of course try to get the bot banned; proscribed_terms.txt was downloaded and is very overly restrictive, but should avoid an outright ban.
