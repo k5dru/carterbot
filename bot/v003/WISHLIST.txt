@@ -7,6 +7,7 @@ Bugs:
 * Asynchronous introspection and management of memories and reflections would be great. If something is going on in the channel that is worth remembering, then that could happen out-of-band, even if the bot is idle.
 * The chat log format with “User said:” is not great. It works, but maybe YAML or something easy to parse would be less confusing for the LLM. Sometimes it wants to prepend its messages with “chatbot said:”, which makes no sense to the channel.
 * The foreground/background python processes are, unsophisticated, to say the least. How about some threading?
+* Multiple bots of different personalities in the same channel arguing! Not fast of course. Paced like real humans arguing. But architecturally we should support that without killing all python processes on the box.
 
 Design features: 
 * since this bot was written on slow LLMs with prompt caching, I make repeated activations of the bot use as near the same prompt as possible. That is why I get messages since a timestamp instead of the last N messages, so most of the prompt will be a cache hit. Of course after a while the entire conversation history has to be reset, and updating any memories causes a cache miss. This isn't a huge deal but we should minimize unique prompt costs if possible.
