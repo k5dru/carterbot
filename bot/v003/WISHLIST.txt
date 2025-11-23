@@ -8,6 +8,7 @@ Bugs:
 
 Wishlist: 
 * testing is nonexistent. The message architecture needs to be reworked so that the bot is not able to tell if the messages are coming from a live channel or a test framework. That way a conversation can be replayed, except for bot contributions, and the bot can formulate answers as if it were in the channel. This can facilitate model testing, prompt testing, all kinds of changes for improvement.
+* While we're wishing how about a modern test system for modern modular code as well? Just start over and write it right.
 * the bot should be more temporally aware. Chat log comments could have timestamps, or a timestamp every 10 minutes, or something to give the bot the idea that time has passed. If the channel is dead for 30 minutes and the last message wasn't from the bot, it could say something (though not directly to a user; don't want to ping them).
 * Asynchronous introspection and management of memories and reflections would be great. If something is going on in the channel that is worth remembering, then that could happen out-of-band, even if the bot is idle.
 * Multiple bots of different personalities in the same channel arguing! Not fast of course. Paced like real humans arguing. But architecturally we should support that without killing all python processes on the box.
